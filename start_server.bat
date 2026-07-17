@@ -1,0 +1,3 @@
+@echo off
+echo Starting Vibration Monitoring Server...
+start "Vibration Server" cmd /k "python server.py"

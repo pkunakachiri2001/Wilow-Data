@@ -1,0 +1,1681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibration Monitor - FINAL</title>
+    <script src="/static/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.2.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #f1f5f9;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ========== STATUS BAR ========== */
+        .status-bar {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            border-bottom: 1px solid #334155;
+            flex-shrink: 0;
+        }
+
+        .status-bar.alert-active {
+            background: linear-gradient(135deg, #991b1b 0%, #b91c1c 100%);
+            animation: pulse-alert 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-alert {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.85; }
+        }
+
+        .logo-placeholder {
+            border: 2px dashed #475569;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            font-size: 10px;
+            text-align: center;
+            background: rgba(15, 23, 42, 0.3);
+        }
+
+        .status-center {
+            flex: 1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        .status-left h1 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #3b82f6;
+            margin-bottom: 4px;
+        }
+
+        .alert-info {
+            font-size: 13px;
+            color: #fca5a5;
+            font-weight: 600;
+        }
+
+        .alert-info.no-alert {
+            color: #94a3b8;
+        }
+
+        .status-right {
+            display: flex;
+            gap: 20px;
+            font-size: 12px;
+        }
+
+        .status-item {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .status-label {
+            color: #94a3b8;
+            font-size: 10px;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .status-value {
+            font-weight: 700;
+            color: #f1f5f9;
+            font-size: 14px;
+        }
+
+        .connection-badge {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            animation: pulse-badge 2s infinite;
+        }
+
+        @keyframes pulse-badge {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+
+        .connection-badge.connected {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        .connection-badge.disconnected {
+            background: #ef4444;
+            animation: none;
+        }
+
+        /* ========== CONTROLS ========== */
+        .time-filter-container {
+            display: flex;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            overflow: hidden;
+            font-family: inherit;
+        }
+        
+        .filter-tabs {
+            display: flex;
+            border-right: 1px solid #334155;
+        }
+
+        .filter-tab {
+            padding: 8px 12px;
+            background: transparent;
+            color: #94a3b8;
+            border: none;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-right: 1px solid #334155;
+        }
+        
+        .filter-tab:last-child {
+            border-right: none;
+        }
+
+        .filter-tab:hover {
+            color: #f1f5f9;
+            background: #1e293b;
+        }
+
+        .filter-tab.active {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .filter-content-area {
+            display: flex;
+            align-items: center;
+        }
+
+        .filter-content {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            padding: 0 12px;
+        }
+
+        .filter-content.active {
+            display: flex;
+        }
+
+        .custom-input {
+            background: #1e293b;
+            color: #f1f5f9;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 13px;
+            color-scheme: dark;
+            outline: none;
+        }
+        
+        .custom-input:focus {
+            border-color: #3b82f6;
+        }
+        
+        .input-label {
+            font-size: 12px;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+
+        .apply-btn {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .apply-btn:hover {
+            background: #059669;
+        }
+
+        .controls-bar {
+            background: #1e293b;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+            flex-shrink: 0;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .control-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+
+        .metric-buttons {
+            display: flex;
+            gap: 8px;
+            background: #0f172a;
+            padding: 4px;
+            border-radius: 8px;
+        }
+
+        .metric-btn {
+            padding: 8px 16px;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .metric-btn:hover {
+            background: #1e293b;
+            color: #f1f5f9;
+        }
+
+        .metric-btn.active {
+            background: #3b82f6;
+            color: white;
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.5);
+        }
+
+        .axis-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .axis-btn {
+            padding: 8px 16px;
+            background: #334155;
+            border: 1px solid #475569;
+            color: #f1f5f9;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .axis-btn:hover {
+            background: #475569;
+            border-color: #64748b;
+        }
+
+        .axis-btn.active {
+            background: #06b6d4;
+            border-color: #06b6d4;
+            color: white;
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.5);
+        }
+
+        /* ========== MAIN GRID ========== */
+        .main-grid {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 4fr 1fr;  /* Main graphs 4x bigger, waveforms very small */
+            gap: 12px;  /* Reduced gap slightly */
+            padding: 15px;
+            overflow: hidden;
+        }
+
+        .graph-column {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 25px;  /* Increased from 20px to give more space */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .column-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;  /* Increased from 15px */
+        }
+
+        .column-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #3b82f6;
+        }
+
+        .column-title.secondary {
+            color: #06b6d4;
+        }
+
+        .freq-badge {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .chart-wrapper {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+        }
+
+        .threshold-legend {
+            display: flex;
+            gap: 15px;
+            font-size: 11px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #334155;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-line {
+            width: 25px;
+            height: 2px;
+            border-radius: 2px;
+        }
+
+        .legend-line.over { background: #ef4444; }
+        .legend-line.under { background: #10b981; }
+        .legend-line.max { background: #60a5fa; }
+        .legend-line.avg { background: #34d399; }
+        .legend-line.min { background: #06b6d4; }
+
+        /* ========== WAVEFORM SECTION ========== */
+        .waveform-row {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .waveform-box {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 12px 15px;  /* Reduced from 20px to make more compact */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border: 1px solid #334155;
+        }
+
+        .waveform-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;  /* Reduced from 15px */
+        }
+
+        .waveform-title {
+            font-size: 12px;  /* Reduced from 14px */
+            font-weight: 700;
+            color: #94a3b8;
+        }
+
+        .waveform-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 6px;  /* Reduced from 10px */
+        }
+
+        .slider-label {
+            font-size: 10px;  /* Reduced from 11px */
+            color: #64748b;
+        }
+
+        input[type="range"] {
+            width: 100px;  /* Reduced from 120px */
+            height: 4px;  /* Reduced from 6px */
+            background: #334155;
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;  /* Reduced from 16px */
+            height: 12px;
+            background: #3b82f6;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            background: #3b82f6;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .slider-value {
+            font-size: 11px;  /* Reduced from 12px */
+            font-weight: 600;
+            color: #3b82f6;
+            min-width: 30px;  /* Reduced from 35px */
+        }
+
+        .waveform-chart {
+            height: 120px;  /* Reduced from 200px to make very compact */
+            position: relative;
+        }
+
+        /* ========== LOADING ========== */
+        .loading {
+            text-align: center;
+            color: #64748b;
+            padding: 40px;
+            font-size: 14px;
+        }
+
+        /* ========== RESPONSIVE ========== */
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: 1fr 1fr auto;
+            }
+
+            .waveform-row {
+                grid-column: 1;
+            }
+        }
+    
+        .status-middle {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .data-status-message {
+            padding: 8px 24px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            display: none;
+        }
+
+        .data-status-message.error {
+            background: rgba(220, 38, 38, 0.2);
+            color: #f87171;
+            border: 1px solid #f87171;
+            animation: blink-error 1.5s infinite;
+            display: flex;
+            opacity: 1;
+        }
+
+        .data-status-message.success {
+            background: rgba(34, 197, 94, 0.2);
+            color: #4ade80;
+            border: 1px solid #4ade80;
+            display: flex;
+            opacity: 1;
+            box-shadow: 0 0 15px rgba(74, 222, 128, 0.4);
+        }
+
+        @keyframes blink-error {
+            0% { opacity: 1; box-shadow: 0 0 15px rgba(248,113,113,0.6); }
+            50% { opacity: 0.4; box-shadow: 0 0 0px rgba(248,113,113,0); }
+            100% { opacity: 1; box-shadow: 0 0 15px rgba(248,113,113,0.6); }
+        }
+</style>
+</head>
+<body>
+    <!-- STATUS BAR -->
+    <div class="status-bar" id="statusBar">
+        <!-- LEFT LOGO - STRETCHED WIDER -->
+	<div class="logo-placeholder" id="companyLogo" style="width: 220px; height: 65px; margin-right: -5px;">
+    	    <img src="/static/CYRUS.jpg" 
+         	style="width:100%;height:100%;object-fit:contain" 
+         	onerror="this.onerror=null; this.parentElement.innerHTML='Company<br>Logo';">
+	</div>
+
+        <!-- CENTER STATUS -->
+        <div class="status-center">
+            <div class="status-left">
+                <h1>🔧 Vibration Monitor v3.0</h1>
+                <div class="alert-info no-alert" id="alertInfo">
+                    No alerts
+                </div>
+            </div>
+            
+            <div class="status-middle">
+                <div class="data-status-message" id="dataStatusMessage">
+                    ?? No Data Available
+                </div>
+            </div>
+<div class="status-right">
+                <div class="status-item">
+                    <span class="status-label">Connection</span>
+                    <span class="status-value">
+                        <span class="connection-badge disconnected" id="connectionBadge"></span>
+                        <span id="connectionText">Connecting...</span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Status</span>
+                    <span class="status-value" id="currentStatus">--</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Magnitude</span>
+                    <span class="status-value" id="currentMagnitude">--</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Frequency</span>
+                    <span class="status-value" id="currentFrequency">--</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Updated</span>
+                    <span class="status-value" id="lastUpdate">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT LOGO - STRETCHED WIDER -->
+	<div class="logo-placeholder" id="collegeLogo" style="width: 220px; height: 65px; margin-left: -5px;">
+    	    <img src="/static/VU-LOGO.jpg" 
+         	style="width:100%;height:100%;object-fit:contain"
+         	onerror="this.onerror=null; this.parentElement.innerHTML='College<br>Logo';">
+	</div>
+    </div>
+
+    <!-- CONTROLS BAR -->
+    <div class="controls-bar">
+        <!-- DATE/TIME FILTER -->
+        <div class="control-group" style="flex-grow: 1;">
+            <div class="time-filter-container">
+                <!-- Filter Mode Tabs -->
+                <div class="filter-tabs">
+                    <button class="filter-tab active" data-mode="live" onclick="setFilterMode('live')">Live Data</button>
+                    <button class="filter-tab" data-mode="day" onclick="setFilterMode('day')">Specific Day</button>
+                    <button class="filter-tab" data-mode="custom" onclick="setFilterMode('custom')">Custom Range</button>
+                </div>
+                
+                <!-- Filter Content Area -->
+                <div class="filter-content-area">
+                    <!-- Live Mode Controls -->
+                    <div id="filter-content-live" class="filter-content active">
+                        <select id="liveMinutesSelect" class="custom-input" onchange="applyFilter()">
+                            <option value="10">Last 10 Minutes</option>
+                            <option value="30">Last 30 Minutes</option>
+                            <option value="60">Last 1 Hour</option>
+                            <option value="360">Last 6 Hours</option>
+                            <option value="1440">Last 24 Hours</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Specific Day Controls -->
+                    <div id="filter-content-day" class="filter-content">
+                        <select id="dateSelect" class="custom-input">
+                            <option value="">⏳ Loading...</option>
+                        </select>
+                        <span class="input-label">Time:</span>
+                        <input type="time" id="dayStartTime" class="custom-input" title="Start Time">
+                        <span class="input-label">to</span>
+                        <input type="time" id="dayEndTime" class="custom-input" title="End Time">
+                        <button class="apply-btn" onclick="applyFilter()">Apply</button>
+                    </div>
+                    
+                    <!-- Custom Range Controls -->
+                    <div id="filter-content-custom" class="filter-content">
+                        <span class="input-label">From:</span>
+                        <input type="datetime-local" id="customStart" class="custom-input">
+                        <span class="input-label">To:</span>
+                        <input type="datetime-local" id="customEnd" class="custom-input">
+                        <button class="apply-btn" onclick="applyFilter()">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <span class="control-label">Metric:</span>
+            <div class="metric-buttons">
+                <button class="metric-btn active" data-metric="acceleration" onclick="selectMetric('acceleration')">
+                    Acceleration
+                </button>
+            </div>
+        </div>
+        <div class="control-group">
+            <span class="control-label">Secondary Axis:</span>
+            <div class="axis-buttons">
+                <button class="axis-btn active" data-axis="X">X</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN GRID -->
+    <div class="main-grid">
+        <!-- PRIMARY COLUMN (Z-AXIS) -->
+        <div class="graph-column">
+            <div class="column-header">
+                <span class="column-title">PRIMARY (Z-Axis)</span>
+                <span class="freq-badge" id="freqBadgePrimary">-- Hz</span>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="primaryChart"></canvas>
+            </div>
+            <div class="threshold-legend" id="primaryLegend">
+                <div class="legend-item">
+                    <div class="legend-line over"></div>
+                    <span>OVER</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-line max"></div>
+                    <span>Max</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-line avg"></div>
+                    <span>Avg</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-line min"></div>
+                    <span>Min</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECONDARY COLUMN (X/Y AXIS) -->
+        <div class="graph-column">
+            <div class="column-header">
+                <span class="column-title secondary">SECONDARY (X-Axis)</span>
+                <span class="freq-badge" id="freqBadgeSecondary">-- Hz</span>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="secondaryChart"></canvas>
+            </div>
+            <div class="threshold-legend">
+                <div class="legend-item">
+                    <div class="legend-line max"></div>
+                    <span>Max</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-line avg"></div>
+                    <span>Avg</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-line min"></div>
+                    <span>Min</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- WAVEFORM ROW -->
+        <div class="waveform-row">
+            <!-- PRIMARY WAVEFORM -->
+            <div class="waveform-box">
+                <div class="waveform-header">
+                    <span class="waveform-title">🌊 Time Domain Reconstruction (Z-Axis)</span>
+                </div>
+                <div class="waveform-chart">
+                    <canvas id="waveformPrimary"></canvas>
+                </div>
+            </div>
+
+            <!-- SECONDARY WAVEFORM -->
+            <div class="waveform-box">
+                <div class="waveform-header">
+                    <span class="waveform-title">🌊 Time Domain Reconstruction (X-Axis)</span>
+                </div>
+                <div class="waveform-chart">
+                    <canvas id="waveformSecondary"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ========== GLOBAL STATE ==========
+        const socket = typeof io !== 'undefined' ? io() : { on: function(){}, emit: function(){} };
+        if (typeof io === 'undefined') {
+            console.error('Socket.IO failed to load. Live updates will be disabled.');
+        }
+        let currentMetric = 'acceleration';
+        let secondaryAxis = 'X';
+        let waveformWindowPrimary = 10;
+        let waveformWindowSecondary = 10;
+        let thresholds = null;
+        let currentDate = null;  // Selected date (null = live mode)
+
+        // Chart instances
+        let primaryChart, secondaryChart, waveformPrimaryChart, waveformSecondaryChart;
+
+        // ========== THRESHOLD HELPERS ==========
+        async function loadThresholds() {
+            try {
+                const response = await fetch('/api/thresholds');
+                thresholds = await response.json();
+                console.log('Thresholds loaded:', thresholds);
+                // Apply real threshold values to chart annotations now that they are loaded
+                updateThresholdLines(currentMetric);
+            } catch (error) {
+                console.error('Failed to load thresholds:', error);
+            }
+        }
+
+        function getThresholdLines(metric) {
+            if (!thresholds || !thresholds.z_axis || !thresholds.z_axis[metric]) {
+                return null;
+            }
+
+            const t = thresholds.z_axis[metric];
+            return {
+                over_positive: t.over_positive,
+                under_positive: t.under_positive,
+                under_negative: t.under_negative,
+                over_negative: t.over_negative
+            };
+        }
+
+        // ========== CHART INITIALIZATION ==========
+        function initCharts() {
+            const darkColors = {
+                text: '#f1f5f9',
+                grid: '#334155',
+                over: '#ef4444',  // red for OVER threshold lines
+                max: '#60a5fa',
+                avg: '#34d399',
+                min: '#06b6d4',
+                alert: '#ef4444'
+            };
+
+            // Primary Chart (Z-axis with thresholds) - Shows 3 LINES
+            primaryChart = new Chart(document.getElementById('primaryChart'), {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { label: 'Max', data: [], borderColor: darkColors.max, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 },
+                        { label: 'Avg', data: [], borderColor: darkColors.avg, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 },
+                        { label: 'Min', data: [], borderColor: darkColors.min, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 },
+                        { 
+                            label: 'Alerts', 
+                            data: [], 
+                            borderColor: darkColors.alert,
+                            backgroundColor: darkColors.alert,
+                            pointRadius: 8,
+                            pointStyle: 'circle',
+                            showLine: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        annotation: {
+                            annotations: {
+                                zero_line: {
+                                    type: 'line',
+                                    yMin: 0,
+                                    yMax: 0,
+                                    borderColor: '#64748b',
+                                    borderWidth: 3,
+                                    label: { 
+                                        content: '0', 
+                                        enabled: true, 
+                                        color: '#64748b',
+                                        position: 'start'
+                                    }
+                                },
+                                over_pos: {
+                                    type: 'line',
+                                    yMin: 2.5,
+                                    yMax: 2.5,
+                                    borderColor: darkColors.over,
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: { 
+                                        content: 'OVER', 
+                                        enabled: true, 
+                                        color: darkColors.over,
+                                        position: 'end'
+                                    }
+                                },
+                                over_neg: {
+                                    type: 'line',
+                                    yMin: -2.5,
+                                    yMax: -2.5,
+                                    borderColor: darkColors.over,
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: { 
+                                        content: 'OVER', 
+                                        enabled: true, 
+                                        color: darkColors.over,
+                                        position: 'end'
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: { tooltipFormat: 'MMM d, yyyy HH:mm:ss' },
+                            grid: { color: darkColors.grid },
+                            ticks: { 
+                                color: darkColors.text, 
+                                font: { size: 10 },
+                                callback: function(value, index, values) {
+                                    const defaultLabel = this.getLabelForValue(value);
+                                    if (typeof filterStart !== 'undefined' && filterStart && filterEnd && (filterEnd - filterStart) > 172800) {
+                                        const date = new Date(value);
+                                        const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                                        return [defaultLabel, dateStr];
+                                    }
+                                    return defaultLabel;
+                                }
+                            }
+                        },
+                        y: {
+                            grid: { 
+                                color: darkColors.grid,
+                                lineWidth: function(context) {
+                                    return context.tick.value === 0 ? 0 : 1;
+                                }
+                            },
+                            ticks: { color: darkColors.text, font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            // Secondary Chart (X/Y axis) - Shows 3 LINES (Max/Avg/Min)
+            secondaryChart = new Chart(document.getElementById('secondaryChart'), {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { label: 'Max', data: [], borderColor: darkColors.max, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 },
+                        { label: 'Avg', data: [], borderColor: darkColors.avg, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 },
+                        { label: 'Min', data: [], borderColor: darkColors.min, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { 
+                        legend: { display: false },
+                        annotation: {
+                            annotations: {
+                                zero_line: {
+                                    type: 'line',
+                                    yMin: 0,
+                                    yMax: 0,
+                                    borderColor: '#64748b',
+                                    borderWidth: 3,
+                                    label: { 
+                                        content: '0', 
+                                        enabled: true, 
+                                        color: '#64748b',
+                                        position: 'start'
+                                    }
+                                },
+                                max_line: {
+                                    type: 'line',
+                                    yMin: 1.0,
+                                    yMax: 1.0,
+                                    borderColor: darkColors.max,
+                                    borderWidth: 2,
+                                    borderDash: [3, 3],
+                                    label: { 
+                                        content: 'Max', 
+                                        enabled: true, 
+                                        color: darkColors.max,
+                                        position: 'end'
+                                    }
+                                },
+                                min_line: {
+                                    type: 'line',
+                                    yMin: -1.0,
+                                    yMax: -1.0,
+                                    borderColor: darkColors.min,
+                                    borderWidth: 2,
+                                    borderDash: [3, 3],
+                                    label: { 
+                                        content: 'Min', 
+                                        enabled: true, 
+                                        color: darkColors.min,
+                                        position: 'end'
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: { tooltipFormat: 'MMM d, yyyy HH:mm:ss' },
+                            grid: { color: darkColors.grid },
+                            ticks: { 
+                                color: darkColors.text, 
+                                font: { size: 10 },
+                                callback: function(value, index, values) {
+                                    const defaultLabel = this.getLabelForValue(value);
+                                    if (typeof filterStart !== 'undefined' && filterStart && filterEnd && (filterEnd - filterStart) > 172800) {
+                                        const date = new Date(value);
+                                        const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                                        return [defaultLabel, dateStr];
+                                    }
+                                    return defaultLabel;
+                                }
+                            }
+                        },
+                        y: {
+                            grid: { 
+                                color: darkColors.grid,
+                                lineWidth: function(context) {
+                                    return context.tick.value === 0 ? 0 : 1;
+                                }
+                            },
+                            ticks: { color: darkColors.text, font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            // Waveform Charts - Same format as main charts but showing RECONSTRUCTED waveform
+            const waveformOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: false },
+                    annotation: {
+                        annotations: {
+                            zero_line: {
+                                type: 'line',
+                                yMin: 0,
+                                yMax: 0,
+                                borderColor: '#64748b',
+                                borderWidth: 3
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { tooltipFormat: 'MMM d, yyyy HH:mm:ss' },
+                        grid: { color: darkColors.grid },
+                        ticks: { color: darkColors.text, font: { size: 9 } }
+                    },
+                    y: {
+                        suggestedMin: -0.1,
+                        suggestedMax: 0.1,
+                        grid: { 
+                            color: darkColors.grid,
+                            lineWidth: function(context) {
+                                return context.tick.value === 0 ? 0 : 1;
+                            }
+                        },
+                        ticks: { color: darkColors.text, font: { size: 9 } }
+                    }
+                }
+            };
+
+            waveformPrimaryChart = new Chart(document.getElementById('waveformPrimary'), {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Reconstructed Waveform',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0
+                    }]
+                },
+                options: JSON.parse(JSON.stringify(waveformOptions))
+            });
+
+            const waveformSecondaryOptions = JSON.parse(JSON.stringify(waveformOptions));
+            waveformSecondaryChart = new Chart(document.getElementById('waveformSecondary'), {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Reconstructed Waveform',
+                        data: [],
+                        borderColor: '#06b6d4',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0
+                    }]
+                },
+                options: waveformSecondaryOptions
+            });
+        }
+
+        // ========== CHART TIME BOUNDS ==========
+        function applyChartTimeBounds(chart) {
+            if (!chart || !chart.options || !chart.options.scales || !chart.options.scales.x) return;
+            
+            if (filterStart && filterEnd) {
+                // filterStart and filterEnd are in seconds, Chart.js needs milliseconds
+                chart.options.scales.x.min = filterStart * 1000;
+                chart.options.scales.x.max = filterEnd * 1000;
+            } else {
+                delete chart.options.scales.x.min;
+                delete chart.options.scales.x.max;
+            }
+        }
+
+        // ========== UPDATE FUNCTIONS ==========
+        function updatePrimaryChart(data) {
+            if (!data || !data.datetime_labels) return;
+
+            const dates = data.datetime_labels.map(dt => new Date(dt));
+
+            primaryChart.data.labels = dates;
+            primaryChart.data.datasets[0].data = data.max;
+            primaryChart.data.datasets[1].data = data.avg;
+            primaryChart.data.datasets[2].data = data.min;
+
+            // Add alert points
+            if (data.alerts && data.alerts.datetimes) {
+                const alertPoints = data.alerts.datetimes.map((dt, i) => ({
+                    x: new Date(dt),
+                    y: data.alerts.values[i]
+                }));
+                primaryChart.data.datasets[3].data = alertPoints;
+            }
+
+            if (data.frequency) {
+                document.getElementById('freqBadgePrimary').textContent = data.frequency.toFixed(1) + ' Hz';
+            } else {
+                document.getElementById('freqBadgePrimary').textContent = '-- Hz';
+            }
+
+            applyChartTimeBounds(primaryChart);
+            primaryChart.update();
+            
+            // Update waveform reconstruction
+            updatePrimaryWaveform(data);
+        }
+
+        function updateSecondaryChart(data) {
+            if (!data || !data.datetime_labels) return;
+
+            const dates = data.datetime_labels.map(dt => new Date(dt));
+
+            secondaryChart.data.labels = dates;
+            secondaryChart.data.datasets[0].data = data.max;
+            secondaryChart.data.datasets[1].data = data.avg;
+            secondaryChart.data.datasets[2].data = data.min;
+
+            if (data.frequency) {
+                document.getElementById('freqBadgeSecondary').textContent = data.frequency.toFixed(1) + ' Hz';
+            } else {
+                document.getElementById('freqBadgeSecondary').textContent = '-- Hz';
+            }
+
+            applyChartTimeBounds(secondaryChart);
+            secondaryChart.update();
+            
+            // Update waveform reconstruction
+            updateSecondaryWaveform(data);
+        }
+
+        function updatePrimaryWaveform(data) {
+            if (!data || !data.max || data.max.length === 0) {
+                console.log('[WAVEFORM] No data available for primary waveform');
+                return;
+            }
+            
+            // Reconstruct waveform for ALL data points (not just latest)
+            const reconstructedWaveform = [];
+
+            // Use the actual machine frequency from the data; fall back to 0.5 Hz visual
+            const visualFreq = data.frequency && data.frequency > 0 ? data.frequency : 0.5;
+
+            // Anchor phase to the START of the data window so the waveform is stable
+            // and consistent with the main chart's x-axis timestamps
+            const epochOriginMs = new Date(data.datetime_labels[0]).getTime();
+            
+            for (let i = 0; i < data.max.length; i++) {
+                const max_val = data.max[i];
+                const min_val = data.min[i];
+                
+                // Amplitude centered on 0 to represent AC vibration
+                const amplitude = (max_val - min_val) / 2;
+                
+                const timestamp = new Date(data.datetime_labels[i]);
+                
+                // 5 sub-points per summary interval for a smooth curve
+                const numSubPoints = 5;
+                for (let j = 0; j < numSubPoints; j++) {
+                    let nextTimeMs = timestamp.getTime() + 8000; // fallback for last point
+                    if (i < data.max.length - 1) {
+                        nextTimeMs = new Date(data.datetime_labels[i+1]).getTime();
+                    }
+                    const stepMs = (nextTimeMs - timestamp.getTime()) / numSubPoints;
+                    const subTimestamp = new Date(timestamp.getTime() + (j * stepMs));
+
+                    // Phase is relative to the window start (in seconds), NOT raw epoch
+                    // This keeps the waveform shape stable as the chart scrolls
+                    const relativeSeconds = (subTimestamp.getTime() - epochOriginMs) / 1000;
+                    const phase = 2 * Math.PI * visualFreq * relativeSeconds;
+                    const value = amplitude * Math.sin(phase);
+                    
+                    reconstructedWaveform.push({ x: subTimestamp, y: value });
+                }
+            }
+            
+            console.log(`[WAVEFORM PRIMARY] Generated ${reconstructedWaveform.length} points from ${data.max.length} data points`);
+            
+            waveformPrimaryChart.data.datasets[0].data = reconstructedWaveform;
+
+            // Pin x-axis to exactly the same time window as the data (first → last label)
+            // This ensures the waveform always matches the main chart's visible range
+            const wfStartMs = new Date(data.datetime_labels[0]).getTime();
+            const wfEndMs   = new Date(data.datetime_labels[data.datetime_labels.length - 1]).getTime();
+            waveformPrimaryChart.options.scales.x.min = wfStartMs;
+            waveformPrimaryChart.options.scales.x.max = wfEndMs;
+
+            waveformPrimaryChart.update();
+        }
+
+        function updateSecondaryWaveform(data) {
+            if (!data || !data.max || data.max.length === 0) {
+                console.log('[WAVEFORM] No data available for secondary waveform');
+                return;
+            }
+            
+            // Reconstruct waveform for ALL data points
+            const reconstructedWaveform = [];
+
+            const visualFreq = data.frequency && data.frequency > 0 ? data.frequency : 0.5;
+            const epochOriginMs = new Date(data.datetime_labels[0]).getTime();
+            
+            for (let i = 0; i < data.max.length; i++) {
+                const max_val = data.max[i];
+                const min_val = data.min[i];
+
+                const amplitude = (max_val - min_val) / 2;
+                
+                const timestamp = new Date(data.datetime_labels[i]);
+                
+                const numSubPoints = 5;
+                for (let j = 0; j < numSubPoints; j++) {
+                    let nextTimeMs = timestamp.getTime() + 8000;
+                    if (i < data.max.length - 1) {
+                        nextTimeMs = new Date(data.datetime_labels[i+1]).getTime();
+                    }
+                    const stepMs = (nextTimeMs - timestamp.getTime()) / numSubPoints;
+                    const subTimestamp = new Date(timestamp.getTime() + (j * stepMs));
+
+                    // Phase relative to window start — not raw epoch — for a stable waveform
+                    const relativeSeconds = (subTimestamp.getTime() - epochOriginMs) / 1000;
+                    const phase = 2 * Math.PI * visualFreq * relativeSeconds;
+                    const value = amplitude * Math.sin(phase);
+                    
+                    reconstructedWaveform.push({ x: subTimestamp, y: value });
+                }
+            }
+            
+            console.log(`[WAVEFORM SECONDARY] Generated ${reconstructedWaveform.length} points from ${data.max.length} data points`);
+            
+            waveformSecondaryChart.data.datasets[0].data = reconstructedWaveform;
+
+            // Pin x-axis to exactly the same time window as the data (first → last label)
+            const wfStartMs = new Date(data.datetime_labels[0]).getTime();
+            const wfEndMs   = new Date(data.datetime_labels[data.datetime_labels.length - 1]).getTime();
+            waveformSecondaryChart.options.scales.x.min = wfStartMs;
+            waveformSecondaryChart.options.scales.x.max = wfEndMs;
+
+            waveformSecondaryChart.update();
+        }
+
+        function updateWaveform(chart, data) {
+            if (!data || !data.time || !data.waveform) return;
+
+            const points = data.time.map((t, i) => ({ x: t, y: data.waveform[i] }));
+            chart.data.labels = data.time;
+            chart.data.datasets[0].data = points;
+            chart.update('none');
+        }
+
+        function updateThresholdLines(metric) {
+            if (!thresholds) return;
+            // Correct path: thresholds.z_axis[metric], NOT thresholds[metric]
+            const thresh = thresholds.z_axis && thresholds.z_axis[metric];
+            if (!thresh) return;
+            const thresholdLines = getThresholdLines(metric);
+            
+            // Update primary threshold line positions
+            if (thresholdLines) {
+                primaryChart.options.plugins.annotation.annotations.over_pos.yMin = thresholdLines.over_positive;
+                primaryChart.options.plugins.annotation.annotations.over_pos.yMax = thresholdLines.over_positive;
+                
+                primaryChart.options.plugins.annotation.annotations.over_neg.yMin = thresholdLines.over_negative;
+                primaryChart.options.plugins.annotation.annotations.over_neg.yMax = thresholdLines.over_negative;
+            }
+
+            // Update Y-axis range and labels based on metric
+            if (metric === 'velocity') {
+                primaryChart.options.scales.y.min = undefined;
+                primaryChart.options.scales.y.max = undefined;
+                secondaryChart.options.scales.y.min = undefined;
+                secondaryChart.options.scales.y.max = undefined;
+                
+                // Update secondary max/min lines
+                secondaryChart.options.plugins.annotation.annotations.max_line.yMin = 0.08;
+                secondaryChart.options.plugins.annotation.annotations.max_line.yMax = 0.08;
+                secondaryChart.options.plugins.annotation.annotations.min_line.yMin = -0.08;
+                secondaryChart.options.plugins.annotation.annotations.min_line.yMax = -0.08;
+                
+                // Update waveforms (auto-scale to make waveforms visible)
+                waveformPrimaryChart.options.scales.y.min = undefined;
+                waveformPrimaryChart.options.scales.y.max = undefined;
+                waveformPrimaryChart.options.scales.y.suggestedMin = -0.01;
+                waveformPrimaryChart.options.scales.y.suggestedMax = 0.01;
+                
+                waveformSecondaryChart.options.scales.y.min = undefined;
+                waveformSecondaryChart.options.scales.y.max = undefined;
+                waveformSecondaryChart.options.scales.y.suggestedMin = -0.01;
+                waveformSecondaryChart.options.scales.y.suggestedMax = 0.01;
+            } else if (metric === 'displacement') {
+                primaryChart.options.scales.y.min = undefined;
+                primaryChart.options.scales.y.max = undefined;
+                secondaryChart.options.scales.y.min = undefined;
+                secondaryChart.options.scales.y.max = undefined;
+                
+                // Update secondary max/min lines
+                secondaryChart.options.plugins.annotation.annotations.max_line.yMin = 0.0008;
+                secondaryChart.options.plugins.annotation.annotations.max_line.yMax = 0.0008;
+                secondaryChart.options.plugins.annotation.annotations.min_line.yMin = -0.0008;
+                secondaryChart.options.plugins.annotation.annotations.min_line.yMax = -0.0008;
+                
+                // Update waveforms (auto-scale to make waveforms visible)
+                waveformPrimaryChart.options.scales.y.min = undefined;
+                waveformPrimaryChart.options.scales.y.max = undefined;
+                waveformPrimaryChart.options.scales.y.suggestedMin = -0.0001;
+                waveformPrimaryChart.options.scales.y.suggestedMax = 0.0001;
+                
+                waveformSecondaryChart.options.scales.y.min = undefined;
+                waveformSecondaryChart.options.scales.y.max = undefined;
+                waveformSecondaryChart.options.scales.y.suggestedMin = -0.0001;
+                waveformSecondaryChart.options.scales.y.suggestedMax = 0.0001;
+            } else {
+                primaryChart.options.scales.y.min = undefined;
+                primaryChart.options.scales.y.max = undefined;
+                secondaryChart.options.scales.y.min = undefined;
+                secondaryChart.options.scales.y.max = undefined;
+                
+                // Update secondary max/min lines
+                secondaryChart.options.plugins.annotation.annotations.max_line.yMin = 1.0;
+                secondaryChart.options.plugins.annotation.annotations.max_line.yMax = 1.0;
+                secondaryChart.options.plugins.annotation.annotations.min_line.yMin = -1.0;
+                secondaryChart.options.plugins.annotation.annotations.min_line.yMax = -1.0;
+                
+                // Update waveforms (auto-scale to make waveforms visible)
+                waveformPrimaryChart.options.scales.y.min = undefined;
+                waveformPrimaryChart.options.scales.y.max = undefined;
+                waveformPrimaryChart.options.scales.y.suggestedMin = -0.1;
+                waveformPrimaryChart.options.scales.y.suggestedMax = 0.1;
+                
+                waveformSecondaryChart.options.scales.y.min = undefined;
+                waveformSecondaryChart.options.scales.y.max = undefined;
+                waveformSecondaryChart.options.scales.y.suggestedMin = -0.1;
+                waveformSecondaryChart.options.scales.y.suggestedMax = 0.1;
+            }
+
+            primaryChart.update('none');
+            secondaryChart.update('none');
+            waveformPrimaryChart.update('none');
+            waveformSecondaryChart.update('none');
+        }
+
+        // ========== USER INTERACTIONS ==========
+        function selectMetric(metric) {
+            currentMetric = metric;
+
+            document.querySelectorAll('.metric-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`[data-metric="${metric}"]`).classList.add('active');
+
+            updateThresholdLines(metric);
+            requestGraphData();
+        }
+
+        // ========== DATA REQUESTS ==========
+        function requestGraphData() {
+            const reqDataPrimary = {
+                axis: 'Z',
+                metric: currentMetric
+            };
+            const reqDataSecondary = {
+                axis: secondaryAxis,
+                metric: currentMetric
+            };
+            
+            if (filterStart && filterEnd) {
+                reqDataPrimary.start_time = filterStart;
+                reqDataPrimary.end_time = filterEnd;
+                reqDataSecondary.start_time = filterStart;
+                reqDataSecondary.end_time = filterEnd;
+            } else {
+                reqDataPrimary.minutes = filterMinutes;
+                reqDataSecondary.minutes = filterMinutes;
+            }
+
+            socket.emit('request_axis_data', reqDataPrimary);
+            socket.emit('request_axis_data', reqDataSecondary);
+        }
+
+        // ========== DATE FUNCTIONS ==========
+        async function loadAvailableDates() {
+            try {
+                const response = await fetch('/api/available-dates');
+                const data = await response.json();
+                
+                const select = document.getElementById('dateSelect');
+                
+                if (data.success && data.dates && data.dates.length > 0) {
+                    select.innerHTML = '';
+                    
+                    // Add "Live" option (default)
+                    const liveOption = document.createElement('option');
+                    liveOption.value = '';
+                    liveOption.textContent = '🔴 Latest (Live)';
+                    select.appendChild(liveOption);
+                    
+                    // Add all dates
+                    data.dates.forEach(date => {
+                        const option = document.createElement('option');
+                        option.value = date;
+                        option.textContent = '📅 ' + date;
+                        select.appendChild(option);
+                    });
+                    
+                    console.log(`[DATES] Loaded ${data.dates.length} dates`);
+                } else {
+                    select.innerHTML = '<option value="">🔴 Live (no history)</option>';
+                }
+            } catch (error) {
+                console.error('[DATES] Error loading:', error);
+                document.getElementById('dateSelect').innerHTML = '<option value="">🔴 Live</option>';
+            }
+        }
+
+        let filterMode = 'live';
+        let filterStart = null;
+        let filterEnd = null;
+        let filterMinutes = 10;
+        
+        function setFilterMode(mode) {
+            filterMode = mode;
+            document.querySelectorAll('.filter-tab').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`.filter-tab[data-mode="${mode}"]`).classList.add('active');
+            
+            document.querySelectorAll('.filter-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(`filter-content-${mode}`).classList.add('active');
+            
+            if (mode === 'live') {
+                applyFilter();
+            }
+        }
+        
+        function applyFilter() {
+            if (filterMode === 'live') {
+                filterMinutes = parseInt(document.getElementById('liveMinutesSelect').value) || 10;
+                filterStart = null;
+                filterEnd = null;
+            } else if (filterMode === 'day') {
+                const dateVal = document.getElementById('dateSelect').value;
+                const startVal = document.getElementById('dayStartTime').value;
+                const endVal = document.getElementById('dayEndTime').value;
+                if (!dateVal) return alert('Please select a date');
+                
+                let startStr = `${dateVal}T${startVal || '00:00'}:00`;
+                let endStr = `${dateVal}T${endVal || '23:59'}:59`;
+                filterStart = new Date(startStr).getTime() / 1000;
+                filterEnd = new Date(endStr).getTime() / 1000;
+                filterMinutes = null;
+            } else if (filterMode === 'custom') {
+                const startVal = document.getElementById('customStart').value;
+                const endVal = document.getElementById('customEnd').value;
+                if (!startVal || !endVal) return alert('Please select both start and end times');
+                
+                filterStart = new Date(startVal).getTime() / 1000;
+                filterEnd = new Date(endVal).getTime() / 1000;
+                filterMinutes = null;
+            }
+            
+            console.log(`[FILTER] mode=${filterMode}, mins=${filterMinutes}, start=${filterStart}, end=${filterEnd}`);
+            requestGraphData();
+        }
+
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/latest_status');
+                const status = await response.json();
+
+                if (status.status) {
+                    document.getElementById('currentStatus').textContent = status.status;
+                }
+                if (status.magnitude) {
+                    document.getElementById('currentMagnitude').textContent = 
+                        parseFloat(status.magnitude).toFixed(3) + ' m/s²';
+                }
+                if (status.frequency) {
+                    document.getElementById('currentFrequency').textContent = 
+                        parseFloat(status.frequency).toFixed(1) + ' Hz';
+                }
+                if (status.timestamp) {
+                    document.getElementById('lastUpdate').textContent = 
+                        new Date(status.timestamp).toLocaleTimeString();
+                }
+
+                if (status.alert) {
+                    document.getElementById('alertInfo').textContent = 
+                        `🔴 ${status.alert_type || 'Threshold Exceeded'} | Z: ${parseFloat(status.magnitude || 0).toFixed(2)} m/s²`;
+                    document.getElementById('alertInfo').classList.remove('no-alert');
+                    document.getElementById('statusBar').classList.add('alert-active');
+                } else {
+                    document.getElementById('alertInfo').textContent = 'No alerts';
+                    document.getElementById('alertInfo').classList.add('no-alert');
+                    document.getElementById('statusBar').classList.remove('alert-active');
+                }
+            } catch (error) {
+                console.error('Error fetching status:', error);
+            }
+        }
+
+        // ========== SOCKET EVENTS ==========
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            document.getElementById('connectionBadge').className = 'connection-badge connected';
+            document.getElementById('connectionText').textContent = 'Live';
+
+            loadThresholds();
+            loadAvailableDates();
+            requestGraphData();
+            fetchStatus();
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected');
+            document.getElementById('connectionBadge').className = 'connection-badge disconnected';
+            document.getElementById('connectionText').textContent = 'Offline';
+        });
+
+        socket.on('axis_data', (data) => {
+            if (data.error) {
+                console.error('Data error:', data.error);
+                if (typeof showToast === 'function') {
+                    showToast('No Data Available for this period');
+                }
+                
+                const emptyData = {
+                    datetime_labels: [], max: [], min: [], avg: [],
+                    over_positive: [], under_positive: [],
+                    over_negative: [], under_negative: []
+                };
+                
+                if (data.axis === 'Z' || data.axis === undefined) {
+                    updatePrimaryChart(emptyData);
+                    updatePrimaryWaveform(emptyData);
+                }
+                if (data.axis === secondaryAxis || data.axis === undefined) {
+                    updateSecondaryChart(emptyData);
+                    updateSecondaryWaveform(emptyData);
+                }
+                return;
+            }
+
+            if (data.axis === 'Z') {
+                updatePrimaryChart(data);
+                updatePrimaryWaveform(data);
+            } else if (data.axis === secondaryAxis) {
+                updateSecondaryChart(data);
+                updateSecondaryWaveform(data);
+            }
+        });
+
+        socket.on('data_update', () => {
+            requestGraphData();
+            fetchStatus();
+        });
+
+        socket.on('alert_notification', (alert) => {
+            console.warn('🚨 ALERT:', alert.alert_type, 'at', alert.timestamp);
+            const statusBar = document.getElementById('statusBar');
+            statusBar.classList.add('alert-active');
+            
+            const alertTime = new Date(alert.timestamp).toLocaleTimeString();
+            document.getElementById('alertInfo').textContent = 
+                `🔴 ${alert.alert_type} at ${alertTime} | ${alert.axis}: ${parseFloat(alert.magnitude).toFixed(2)} m/s²`;
+            document.getElementById('alertInfo').classList.remove('no-alert');
+
+            requestGraphData();
+            fetchStatus();
+        });
+
+        // ========== INITIALIZATION ==========
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            updateThresholdLines(currentMetric);
+            
+            setInterval(requestGraphData, 5000);
+            setInterval(fetchStatus, 2000);
+        });
+    </script>
+</body>
+</html>
+<style>
+.enlarged-chart {
+    position: fixed !important;
+    top: 5% !important;
+    left: 5% !important;
+    width: 90vw !important;
+    height: 90vh !important;
+    z-index: 9999 !important;
+    background: #1e293b !important;
+    padding: 20px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 0 50px rgba(0,0,0,0.8) !important;
+}
+.chart-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 9998;
+    display: none;
+}
+.chart-overlay.active {
+    display: block;
+}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const overlay = document.createElement('div');
+    overlay.className = 'chart-overlay';
+    document.body.appendChild(overlay);
+
+    let activeEnlarged = null;
+    let placeholder = null;
+
+    function toggleEnlarge(element) {
+        if (activeEnlarged === element) {
+            element.classList.remove('enlarged-chart');
+            overlay.classList.remove('active');
+            activeEnlarged = null;
+            if (placeholder) {
+                placeholder.replaceWith(element);
+                placeholder = null;
+            }
+        } else {
+            if (activeEnlarged) {
+                activeEnlarged.classList.remove('enlarged-chart');
+                if (placeholder) {
+                    placeholder.replaceWith(activeEnlarged);
+                }
+            }
+            placeholder = document.createElement('div');
+            placeholder.className = element.className;
+            placeholder.style.width = element.offsetWidth + 'px';
+            placeholder.style.height = element.offsetHeight + 'px';
+            placeholder.style.visibility = 'hidden';
+            
+            element.parentNode.insertBefore(placeholder, element);
+            document.body.appendChild(element);
+
+            element.classList.add('enlarged-chart');
+            overlay.classList.add('active');
+            activeEnlarged = element;
+        }
+        
+        setTimeout(() => {
+            Object.values(Chart.instances).forEach(c => c.resize());
+        }, 50);
+    }
+
+    overlay.addEventListener('click', () => {
+        if (activeEnlarged) toggleEnlarge(activeEnlarged);
+    });
+
+    document.querySelectorAll('.graph-column, .waveform-box').forEach(box => {
+        box.addEventListener('dblclick', function() {
+            toggleEnlarge(this);
+            window.getSelection().removeAllRanges();
+        });
+        box.style.cursor = 'pointer';
+        box.title = 'Double click to enlarge';
+    });
+});
+</script>
+
+<style>
+.waveform-box, .graph-column {
+    overflow: hidden;
+}
+.enlarged-chart .waveform-chart,
+.enlarged-chart .chart-wrapper {
+    height: calc(100% - 40px) !important;
+    min-height: 0 !important;
+}
+</style>

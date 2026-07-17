@@ -1,0 +1,3 @@
+@echo off
+echo Starting ngrok HTTP Tunnel on Port 5000...
+start "ngrok Tunnel" cmd /k "ngrok.exe http 5000"
