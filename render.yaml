@@ -11,4 +11,4 @@ services:
       - key: SECRET_KEY
         generateValue: true  # Render auto-generates a random secret
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: "3.11.0"
