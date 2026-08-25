@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: vibration-monitor
+    env: python
+    buildCommand: pip install -r requirements_cloud.txt
+    startCommand: gunicorn --worker-class eventlet -w 1 cloud_server:app
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # You'll paste this in Render dashboard
+      - key: SECRET_KEY
+        generateValue: true  # Render auto-generates a random secret
+      - key: PYTHON_VERSION
+        value: 3.11.0

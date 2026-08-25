@@ -3,6 +3,7 @@ Flask Server for Vibration Monitoring
 - Parses Teensy CSV file format directly
 - Stores only fields actually present in Teensy output
 - Date-wise data organisation
+- Syncs with Neon PostgreSQL DB on startup and every upload
 """
 
 from flask import Flask, request, jsonify, render_template, send_from_directory
@@ -15,6 +16,26 @@ from datetime import datetime
 import json
 import csv
 from threading import Lock
+
+# Load .env if present (for DATABASE_URL etc.)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# ---- Neon DB (optional — graceful fallback if not configured) ----
+DB_ENABLED = False
+try:
+    import db as _db
+    if os.environ.get('DATABASE_URL'):
+        _db.init_db()
+        DB_ENABLED = True
+        print("[LOCAL] Neon DB enabled.")
+    else:
+        print("[LOCAL] DATABASE_URL not set — running in local-only mode.")
+except Exception as _db_init_err:
+    print(f"[LOCAL WARNING] Neon DB init failed: {_db_init_err} — local-only mode.")
 
 # ================= CONFIGURATION =================
 UPLOAD_DIR = "uploads"
@@ -130,6 +151,128 @@ def initialize_master_csv():
 
 initialize_master_csv()
 scan_existing_dates()
+
+# ================= NEON STARTUP SYNC =================
+RPI_CLIENT_URL = os.environ.get('RPI_CLIENT_URL', '')  # e.g. http://192.168.1.50:5000
+
+
+def _pull_from_rpi(last_local_epoch: float):
+    """
+    Layer 2 recovery: pull missed CSV files directly from the RPi client's
+    /list-pending and /fetch-file endpoints.
+    Only used when the laptop has been off so long that Neon overflowed and
+    trimmed data that wasn't yet synced locally.
+    Requires RPI_CLIENT_URL env var to be set.
+    """
+    import requests as _req
+    if not RPI_CLIENT_URL:
+        return 0
+    try:
+        print(f"[SYNC-RPi] Fetching pending file list from RPi...")
+        resp = _req.get(f"{RPI_CLIENT_URL}/list-pending", timeout=10)
+        if resp.status_code != 200:
+            print(f"[SYNC-RPi] RPi returned HTTP {resp.status_code} — skipping.")
+            return 0
+
+        files = resp.json().get('files', [])
+        # Only pull files newer than what we have locally
+        new_files = [f for f in files if f.get('epoch', 0) > last_local_epoch]
+        if not new_files:
+            print("[SYNC-RPi] No new files from RPi.")
+            return 0
+
+        print(f"[SYNC-RPi] Pulling {len(new_files)} files directly from RPi...")
+        pulled = 0
+        for file_info in new_files:
+            fname = file_info['filename']
+            try:
+                fr = _req.get(f"{RPI_CLIENT_URL}/fetch-file/{fname}", timeout=10)
+                if fr.status_code == 200:
+                    # Save to uploads/ and parse like a normal upload
+                    fpath = os.path.join(UPLOAD_DIR, fname)
+                    with open(fpath, 'w') as f:
+                        f.write(fr.text)
+                    parsed              = parse_teensy_file(fpath)
+                    date_str, epoch_t   = epoch_from_filename(fname)
+                    if epoch_t > last_local_epoch:
+                        store_teensy_data(fname, parsed, date_str, epoch_t)
+                        pulled += 1
+            except Exception as fe:
+                print(f"[SYNC-RPi] Failed to fetch {fname}: {fe}")
+
+        print(f"[SYNC-RPi] ✅ Pulled {pulled} files directly from RPi.")
+        return pulled
+    except Exception as e:
+        print(f"[SYNC-RPi] Error: {e} — skipping RPi direct pull.")
+        return 0
+
+
+def sync_from_neon():
+    """
+    On startup, fill local CSVs from two sources:
+      Layer 1 — Neon DB (rows since last local epoch)
+      Layer 2 — RPi direct pull (for extreme gaps when Neon overflowed)
+    After writing rows locally, DELETES them from Neon (acknowledged transit buffer).
+    """
+    if not DB_ENABLED:
+        return
+    try:
+        # Find the last epoch we have locally
+        last_local_epoch = 0.0
+        if os.path.exists(MASTER_CSV):
+            df = pd.read_csv(MASTER_CSV)
+            if not df.empty and 'Time_sec' in df.columns:
+                ts_col = pd.to_numeric(df['Time_sec'], errors='coerce')
+                last_local_epoch = float(ts_col.max()) if not ts_col.isna().all() else 0.0
+
+        print(f"[SYNC] Last local epoch: {last_local_epoch} — fetching newer rows from Neon...")
+        rows = _db.fetch_rows_since(last_local_epoch)
+
+        if rows:
+            print(f"[SYNC] Writing {len(rows)} missed rows to local CSV files...")
+            max_synced_epoch = last_local_epoch
+            with csv_lock:
+                for r in rows:
+                    # r = (date, time_sec, max_az, min_az, mean_az, std_az, skewness_az,
+                    #       kurtosis_az, max_ax, min_ax, mean_ax,
+                    #       fft1_freq, fft1_mag, fft2_freq, fft2_mag,
+                    #       fft3_freq, fft3_mag, fft4_freq, fft4_mag, fft5_freq, fft5_mag)
+                    row_list = list(r)
+                    date_str = row_list[0]
+                    epoch    = float(row_list[1])
+
+                    # Master CSV
+                    with open(MASTER_CSV, 'a', newline='') as f:
+                        csv.writer(f).writerow(row_list)
+
+                    # Date-specific CSV
+                    if date_str:
+                        date_csv = get_date_csv(date_str)
+                        init_date_csv(date_csv)
+                        with open(date_csv, 'a', newline='') as f:
+                            csv.writer(f).writerow(row_list)
+
+                    if epoch > max_synced_epoch:
+                        max_synced_epoch = epoch
+
+            print(f"[SYNC] ✅ Synced {len(rows)} rows from Neon.")
+
+            # ---- Acknowledged delete: purge synced rows from Neon ----
+            try:
+                deleted = _db.delete_rows_before_epoch(max_synced_epoch)
+                print(f"[SYNC] 🗑  Deleted {deleted} acknowledged rows from Neon (transit buffer cleaned).")
+            except Exception as del_err:
+                print(f"[SYNC] Delete warning (non-fatal): {del_err}")
+        else:
+            print("[SYNC] Neon: already up to date — no new rows.")
+
+        # ---- Layer 2: RPi direct pull (catches anything Neon may have trimmed) ----
+        _pull_from_rpi(last_local_epoch)
+
+    except Exception as e:
+        print(f"[SYNC ERROR] Could not sync from Neon: {e} — continuing in local-only mode.")
+
+synced = sync_from_neon()
 
 # ================= THRESHOLD CHECK =================
 def check_threshold_violation(value, thresholds):
@@ -291,6 +434,14 @@ def store_teensy_data(filename, parsed, date_str, epoch_time):
             init_date_csv(date_csv)
             with open(date_csv, 'a', newline='') as f:
                 csv.writer(f).writerow(row)
+
+    # ---- Write to Neon DB (non-blocking, graceful fallback) ----
+    if DB_ENABLED:
+        try:
+            row_dict = _db.parsed_to_row_dict(parsed, date_str, epoch_time)
+            _db.insert_row(row_dict)
+        except Exception as _db_err:
+            print(f"[LOCAL DB WARN] insert_row failed: {_db_err} — data saved locally only.")
 
     print(f"[STORED] {filename} → {date_str}")
     return alert_status
@@ -496,4 +647,4 @@ if __name__ == "__main__":
     print(f"Date-wise storage: {DATA_BY_DATE_DIR}/")
     print(f"Available dates: {len(available_dates_cache)}")
     print("=" * 60)
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=5002, debug=False)

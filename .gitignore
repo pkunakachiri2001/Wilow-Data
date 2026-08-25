@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+
+# Environment secrets — NEVER commit this!
+.env
+
+# Local data files (large, ephemeral)
+master_data.csv
+uploads/
+data_by_date/
+downloaded_csvs/
+server.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ngrok
+ngrok.exe
+*.bat
