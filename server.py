@@ -523,7 +523,7 @@ def get_axis_data(axis='Z', last_n_minutes=None, start_time=None, end_time=None)
 # ================= ROUTES =================
 @app.route("/")
 def home():
-    return render_template("dashboard.html")
+    return render_template("dashboard.html", is_cloud=False)
 
 @app.route("/api/available-dates", methods=['GET'])
 def get_available_dates():

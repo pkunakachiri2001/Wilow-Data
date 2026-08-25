@@ -608,14 +608,20 @@
                 <!-- Filter Mode Tabs -->
                 <div class="filter-tabs">
                     <button class="filter-tab active" data-mode="live" onclick="setFilterMode('live')">Live Data</button>
+                    {% if not is_cloud %}
                     <button class="filter-tab" data-mode="day" onclick="setFilterMode('day')">Specific Day</button>
                     <button class="filter-tab" data-mode="custom" onclick="setFilterMode('custom')">Custom Range</button>
+                    {% endif %}
                 </div>
                 
                 <!-- Filter Content Area -->
                 <div class="filter-content-area">
                     <!-- Live Mode Controls -->
                     <div id="filter-content-live" class="filter-content active">
+                        {% if is_cloud %}
+                        <!-- Cloud: locked to last 10 minutes only -->
+                        <span class="input-label" style="color:#60a5fa;font-weight:700;">⚡ Last 10 Minutes (Live)</span>
+                        {% else %}
                         <select id="liveMinutesSelect" class="custom-input" onchange="applyFilter()">
                             <option value="10">Last 10 Minutes</option>
                             <option value="30">Last 30 Minutes</option>
@@ -623,8 +629,10 @@
                             <option value="360">Last 6 Hours</option>
                             <option value="1440">Last 24 Hours</option>
                         </select>
+                        {% endif %}
                     </div>
                     
+                    {% if not is_cloud %}
                     <!-- Specific Day Controls -->
                     <div id="filter-content-day" class="filter-content">
                         <select id="dateSelect" class="custom-input">
@@ -645,6 +653,7 @@
                         <input type="datetime-local" id="customEnd" class="custom-input">
                         <button class="apply-btn" onclick="applyFilter()">Apply</button>
                     </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -1424,7 +1433,9 @@
         let filterMode = 'live';
         let filterStart = null;
         let filterEnd = null;
+        // On cloud: always locked to 10 minutes. On local: controlled by the dropdown.
         let filterMinutes = 10;
+        const IS_CLOUD = {{ 'true' if is_cloud else 'false' }};
         
         function setFilterMode(mode) {
             filterMode = mode;
@@ -1441,7 +1452,8 @@
         
         function applyFilter() {
             if (filterMode === 'live') {
-                filterMinutes = parseInt(document.getElementById('liveMinutesSelect').value) || 10;
+                // Cloud is locked to last 10 minutes only — no dropdown exists
+                filterMinutes = IS_CLOUD ? 10 : (parseInt(document.getElementById('liveMinutesSelect').value) || 10);
                 filterStart = null;
                 filterEnd = null;
             } else if (filterMode === 'day') {
@@ -1512,7 +1524,7 @@
             document.getElementById('connectionText').textContent = 'Live';
 
             loadThresholds();
-            loadAvailableDates();
+            if (!IS_CLOUD) loadAvailableDates();  // Cloud has no date picker
             requestGraphData();
             fetchStatus();
         });
