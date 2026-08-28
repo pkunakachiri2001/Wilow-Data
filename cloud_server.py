@@ -15,6 +15,7 @@ from flask import Flask, request, jsonify, render_template
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import os
+import io
 from datetime import datetime
 from threading import Lock
 
@@ -148,6 +149,75 @@ def parse_teensy_file(filepath):
                     continue
     except Exception as e:
         print(f"[PARSE ERROR] {filepath}: {e}")
+    return data
+
+
+def _parse_teensy_string(csv_content: str) -> dict:
+    """
+    Same logic as parse_teensy_file but operates on a string (no disk I/O).
+    Used by the /data endpoint to parse the in-memory CSV reconstructed from ESP32 JSON.
+    """
+    data = {
+        'max_az': None, 'min_az': None, 'mean_az': None,
+        'std_az': None, 'skewness_az': None, 'kurtosis_az': None,
+        'max_ax': None, 'min_ax': None, 'mean_ax': None,
+        'fft_peaks': []
+    }
+    try:
+        lines = csv_content.splitlines()
+        current_section = None
+        for line in lines:
+            line = line.strip()
+            if '=== Z-AXIS STATISTICS' in line:
+                current_section = 'z_stat'; continue
+            elif '=== X-AXIS STATISTICS' in line:
+                current_section = 'x_stat'; continue
+            elif '=== FFT PEAKS' in line:
+                current_section = 'fft'; continue
+            elif line.startswith('===') or line.startswith('Parameter') \
+                    or line.startswith('Rank') or not line:
+                continue
+
+            parts = [p.strip() for p in line.split(',')]
+
+            if current_section == 'z_stat' and len(parts) >= 2:
+                param, val_str = parts[0], parts[1]
+                try:
+                    val = float(val_str)
+                except ValueError:
+                    continue
+                mapping = {
+                    'Maximum Az': 'max_az', 'Minimum Az': 'min_az',
+                    'Mean Az': 'mean_az', 'Std Dev Az': 'std_az',
+                    'Skewness Az': 'skewness_az',
+                    'Excess Kurtosis Az': 'kurtosis_az',
+                }
+                if param in mapping:
+                    data[mapping[param]] = val
+
+            elif current_section == 'x_stat' and len(parts) >= 2:
+                param, val_str = parts[0], parts[1]
+                try:
+                    val = float(val_str)
+                except ValueError:
+                    continue
+                mapping = {
+                    'Maximum Ax': 'max_ax',
+                    'Minimum Ax': 'min_ax',
+                    'Mean Ax':    'mean_ax',
+                }
+                if param in mapping:
+                    data[mapping[param]] = val
+
+            elif current_section == 'fft' and len(parts) >= 3 and len(data['fft_peaks']) < 5:
+                try:
+                    freq = float(parts[1])
+                    mag  = float(parts[2])
+                    data['fft_peaks'].append((freq, mag))
+                except ValueError:
+                    continue
+    except Exception as e:
+        print(f"[PARSE ERROR] _parse_teensy_string: {e}")
     return data
 
 
@@ -321,6 +391,133 @@ def upload():
 
     except Exception as e:
         print(f"[ERROR] Upload: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ================= /data — ESP32 S3 DIRECT JSON ENDPOINT =================
+# Replaces the RPi middleman. Accepts the same JSON the ESP32 already sends,
+# reconstructs the CSV in memory, then runs the existing parse→DB pipeline.
+@app.route("/data", methods=["POST"])
+def receive_esp32_data():
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Expected JSON payload"}), 400
+
+        data     = request.get_json()
+        core_id  = data.get("core", 0)
+        samples  = data.get("samples", 0)
+        print(f"\n[ESP32 Core {core_id}] Direct JSON received (samples: {samples})")
+
+        # ---- Reconstruct Teensy-format CSV in memory (same as rpi_client.py) ----
+        now_str      = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename     = f"ESP32_Core{core_id}_{now_str}.csv"
+        record_start = data.get("record_start", 0)
+        record_stop  = data.get("record_stop",  0)
+        duration_s   = (record_stop - record_start) / 1000.0 \
+                       if record_stop > record_start else 0.0
+
+        freqs     = data.get("freq", [])
+        mags      = data.get("mag",  [])
+        fft_lines = [f"{i+1},{freqs[i]},{mags[i]}"
+                     for i in range(min(len(freqs), len(mags)))]
+
+        csv_lines = [
+            "=== METADATA ===",
+            "Parameter,Value,Unit",
+            f"Device ID,ESP32_Core{core_id},-",
+            "File number,0,-",
+            f"File name,{filename},-",
+            "",
+            "=== RECORDING INFO ===",
+            "Parameter,Value,Unit",
+            f"Record start,{record_start},ms from boot",
+            f"Record stop,{record_stop},ms from boot",
+            f"Duration,{duration_s:.3f},s",
+            f"Total samples,{samples},samples",
+            f"Sample rate,{data.get('sample_rate', 0.0)},Hz",
+            "",
+            "=== Z-AXIS STATISTICS ===",
+            "Parameter,Value,Unit",
+            f"Maximum Az,{data.get('max',      0.0)},m/s^2",
+            f"Minimum Az,{data.get('min',      0.0)},m/s^2",
+            f"Mean Az,{data.get('mean',        0.0)},m/s^2",
+            f"Std Dev Az,{data.get('std_dev',  0.0)},m/s^2",
+            f"Skewness Az,{data.get('skewness',0.0)},-",
+            f"Excess Kurtosis Az,{data.get('kurtosis', 0.0)},-",
+            "",
+            "=== X-AXIS STATISTICS ===",
+            "Parameter,Value,Unit",
+            f"Maximum Ax,{data.get('max_x',  0.0)},m/s^2",
+            f"Minimum Ax,{data.get('min_x',  0.0)},m/s^2",
+            f"Mean Ax,{data.get('mean_x',    0.0)},m/s^2",
+            "",
+            "=== FFT PEAKS (Z-AXIS) ===",
+            "Rank,Frequency (Hz),Magnitude",
+        ] + fft_lines + ["================================================="]
+
+        csv_content = "\n".join(csv_lines)
+
+        # ---- Parse the reconstructed CSV (using StringIO — no disk I/O) ----
+        parsed = _parse_teensy_string(csv_content)
+        date_str, epoch_t = datetime.now().strftime('%Y-%m-%d'), datetime.now().timestamp()
+
+        # ---- Insert into Neon DB ----
+        row_dict = db.parsed_to_row_dict(parsed, date_str, epoch_t)
+        try:
+            db.insert_row(row_dict)
+        except Exception as db_err:
+            print(f"[ESP32 DB WARN] insert_row: {db_err}")
+
+        # ---- Overflow guard (same as /upload) ----
+        import random
+        if random.randint(1, 100) == 1:
+            try:
+                count = db.get_row_count()
+                if count > MAX_NEON_ROWS:
+                    trimmed = db.delete_oldest_rows(OVERFLOW_DELETE_N)
+                    print(f"[OVERFLOW] Trimmed {trimmed} oldest rows (was {count}).")
+            except Exception as ov_err:
+                print(f"[OVERFLOW CHECK ERROR] {ov_err}")
+
+        # ---- Threshold check & socket emit ----
+        alert_status = None
+        max_az = parsed.get('max_az')
+        if max_az is not None:
+            violation = check_threshold_violation(max_az, THRESHOLDS['z_axis']['acceleration'])
+            if violation:
+                alert_status = violation
+                print(f"[ALERT] {violation} | Max_Az={max_az:.4f}")
+            else:
+                print(f"[OK] Max_Az={max_az:.4f}")
+
+        top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
+        with status_lock:
+            latest_status['timestamp'] = datetime.fromtimestamp(epoch_t).strftime('%Y-%m-%d %H:%M:%S')
+            latest_status['magnitude'] = max_az or 0
+            latest_status['frequency'] = top_freq
+
+            if alert_status:
+                latest_status['status']     = f'{alert_status} Threshold'
+                latest_status['alert']      = True
+                latest_status['alert_type'] = f'Z-Axis {alert_status} Threshold'
+                latest_status['alert_time'] = latest_status['timestamp']
+                socketio.emit('alert_notification', {
+                    'alert_type': f'Z-Axis {alert_status} Threshold',
+                    'timestamp':  latest_status['timestamp'],
+                    'magnitude':  max_az,
+                    'axis':       'Z'
+                })
+            else:
+                latest_status['status']     = 'Normal'
+                latest_status['alert']      = False
+                latest_status['alert_type'] = None
+
+        socketio.emit('data_update', {'type': 'esp32_direct', 'filename': filename})
+        return jsonify({"status": "received", "filename": filename, "alert": alert_status}), 200
+
+    except Exception as e:
+        print(f"[ERROR] /data: {e}")
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
