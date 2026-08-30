@@ -15,19 +15,56 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '')
 _pool = None
 
 
+def _make_dsn() -> str:
+    """
+    Append TCP keepalive params to DATABASE_URL.
+    Neon serverless Postgres closes idle connections after ~5 min.
+    These params keep the TCP socket alive so psycopg2 detects a dead
+    connection before trying to use it, instead of failing mid-request.
+    """
+    base = DATABASE_URL
+    if not base:
+        return base
+    sep = '&' if '?' in base else '?'
+    if 'keepalives' not in base:
+        base += (
+            f"{sep}keepalives=1"
+            "&keepalives_idle=30"
+            "&keepalives_interval=5"
+            "&keepalives_count=5"
+        )
+    return base
+
+
 def _get_pool():
     global _pool
     if _pool is None or _pool.closed:
         if not DATABASE_URL:
             raise RuntimeError("[DB] DATABASE_URL env var is not set.")
         _pool = psycopg2.pool.ThreadedConnectionPool(
-            1, 10, DATABASE_URL
+            1, 10, _make_dsn()
         )
     return _pool
 
 
 def _get_conn():
-    return _get_pool().getconn()
+    """
+    Fetch a connection from the pool.
+    If the pool is poisoned by a stale Neon connection, reset it entirely
+    so the next request gets a fresh healthy connection instead of failing.
+    """
+    global _pool
+    try:
+        return _get_pool().getconn()
+    except psycopg2.OperationalError:
+        print("[DB] OperationalError on getconn — Neon idle disconnect detected. Resetting pool.")
+        try:
+            if _pool and not _pool.closed:
+                _pool.closeall()
+        except Exception:
+            pass
+        _pool = None
+        return _get_pool().getconn()
 
 
 def _put_conn(conn):

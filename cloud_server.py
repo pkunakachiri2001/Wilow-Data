@@ -16,6 +16,7 @@ from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import os
 import io
+import random
 from datetime import datetime
 from threading import Lock
 
@@ -45,6 +46,12 @@ app = Flask(__name__, static_folder=STATIC_DIR, template_folder=TEMPLATE_DIR)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'vibration-cloud-key')
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
+# ---- ESP32 API Key (optional but recommended) ----
+# Set ESP32_API_KEY in Render environment variables.
+# The ESP32 must send: http.addHeader("X-API-Key", "<same-key>");
+# Leave empty string to disable auth (useful during initial testing).
+ESP32_API_KEY = os.environ.get('ESP32_API_KEY', '')
 
 status_lock = Lock()
 latest_status = {
@@ -342,7 +349,6 @@ def upload():
 
         # ---- Overflow guard: keep Neon lean (ring buffer) ----
         # Only run the check every ~100 uploads to avoid hammering the DB
-        import random
         if random.randint(1, 100) == 1:
             try:
                 count = db.get_row_count()
@@ -400,6 +406,12 @@ def upload():
 # reconstructs the CSV in memory, then runs the existing parse→DB pipeline.
 @app.route("/data", methods=["POST"])
 def receive_esp32_data():
+    # ---- API key check (set ESP32_API_KEY env var on Render to enable) ----
+    if ESP32_API_KEY:
+        incoming_key = request.headers.get('X-API-Key', '')
+        if incoming_key != ESP32_API_KEY:
+            print(f"[SECURITY] /data blocked — wrong or missing X-API-Key from {request.remote_addr}")
+            return jsonify({"error": "Unauthorized"}), 401
     try:
         if not request.is_json:
             return jsonify({"error": "Expected JSON payload"}), 400
@@ -470,7 +482,6 @@ def receive_esp32_data():
             print(f"[ESP32 DB WARN] insert_row: {db_err}")
 
         # ---- Overflow guard (same as /upload) ----
-        import random
         if random.randint(1, 100) == 1:
             try:
                 count = db.get_row_count()
