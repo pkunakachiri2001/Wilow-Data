@@ -16,7 +16,8 @@ from datetime import datetime
 import json
 import csv
 from threading import Lock
-
+import threading
+import time
 # Load .env if present (for DATABASE_URL etc.)
 try:
     from dotenv import load_dotenv
@@ -263,8 +264,12 @@ def sync_from_neon():
                 print(f"[SYNC] 🗑  Deleted {deleted} acknowledged rows from Neon (transit buffer cleaned).")
             except Exception as del_err:
                 print(f"[SYNC] Delete warning (non-fatal): {del_err}")
+                
+            # Tell the local dashboard to refresh its charts
+            socketio.emit('data_update', {'type': 'sync', 'count': len(rows)})
         else:
-            print("[SYNC] Neon: already up to date — no new rows.")
+            # print("[SYNC] Neon: already up to date — no new rows.") # Muted to prevent spam
+            pass
 
         # ---- Layer 2: RPi direct pull (catches anything Neon may have trimmed) ----
         _pull_from_rpi(last_local_epoch)
@@ -272,7 +277,19 @@ def sync_from_neon():
     except Exception as e:
         print(f"[SYNC ERROR] Could not sync from Neon: {e} — continuing in local-only mode.")
 
+def sync_loop():
+    """Background thread to poll Neon DB for new data every 10 seconds"""
+    print("[SYNC] Background sync thread started.")
+    while True:
+        try:
+            sync_from_neon()
+        except Exception as e:
+            print(f"[SYNC LOOP ERROR] {e}")
+        time.sleep(10)
+
+# Run initial sync and start background polling
 synced = sync_from_neon()
+threading.Thread(target=sync_loop, daemon=True).start()
 
 # ================= THRESHOLD CHECK =================
 def check_threshold_violation(value, thresholds):

@@ -97,10 +97,12 @@ SemaphoreHandle_t fftMutex;    // Only one core uses shared FFT arrays at a time
 SemaphoreHandle_t serialMutex; // Prevents Serial output from interleaving
 
 void writeRegister(uint8_t reg, uint8_t value) {
+  SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE3));
   digitalWrite(CS_PIN, LOW);
   SPI.transfer(reg); // Write, bit 7 = 0
   SPI.transfer(value);
   digitalWrite(CS_PIN, HIGH);
+  SPI.endTransaction();
 }
 
 // ============================================================
