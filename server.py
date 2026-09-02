@@ -258,6 +258,33 @@ def sync_from_neon():
 
             print(f"[SYNC] ✅ Synced {len(rows)} rows from Neon.")
 
+            # ---- Update latest_status from the most recently synced row ----
+            # rows are ordered by time_sec ASC, so the last one is the newest.
+            try:
+                last_row    = list(rows[-1])
+                last_epoch  = float(last_row[1])
+                last_max_az = float(last_row[2]) if last_row[2] is not None else 0.0
+                last_freq   = float(last_row[11]) if last_row[11] is not None else 0.0
+                violation   = check_threshold_violation(
+                                  last_max_az, THRESHOLDS['z_axis']['acceleration']
+                              ) if last_max_az else None
+                ts_str = datetime.fromtimestamp(last_epoch).strftime('%Y-%m-%d %H:%M:%S')
+                with status_lock:
+                    latest_status['timestamp'] = ts_str
+                    latest_status['magnitude'] = last_max_az
+                    latest_status['frequency'] = last_freq
+                    if violation:
+                        latest_status['status']     = f'{violation} Threshold'
+                        latest_status['alert']      = True
+                        latest_status['alert_type'] = f'Z-Axis {violation} Threshold'
+                        latest_status['alert_time'] = ts_str
+                    else:
+                        latest_status['status']     = 'Normal'
+                        latest_status['alert']      = False
+                        latest_status['alert_type'] = None
+            except Exception as _st_err:
+                print(f"[SYNC] Status update warning (non-fatal): {_st_err}")
+
             # ---- Acknowledged delete: purge synced rows from Neon ----
             try:
                 deleted = _db.delete_rows_before_epoch(max_synced_epoch)
