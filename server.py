@@ -515,7 +515,7 @@ def get_axis_data(axis='Z', last_n_minutes=None, start_time=None, end_time=None)
             return None
 
         datetime_labels = [
-            datetime.fromtimestamp(ts).isoformat() for ts in timestamps
+            datetime.fromtimestamp(ts).astimezone().isoformat() for ts in timestamps
         ]
 
         avg_freq = frequencies.mean() if not frequencies.isna().all() else None

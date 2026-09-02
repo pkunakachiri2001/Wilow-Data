@@ -93,6 +93,25 @@ struct TaskCtx {
 static TaskCtx ctx1; // Core 1 data
 static TaskCtx ctx2; // Core 0 data
 
+// ============================================================
+// Networking Queue — decouples HTTP POST from recording tasks
+// ============================================================
+// Lightweight payload: all stats + FFT peaks (~112 bytes each)
+struct DataPayload {
+  int           coreID;
+  unsigned long samples;
+  unsigned long recordStart;
+  unsigned long recordStop;
+  float         maxZ, minZ, meanZ, stdDevZ, skewnessZ, kurtosisZ;
+  float         maxX, minX, meanX;
+  float         peakFreq[5];
+  float         peakMag[5];
+};
+
+// 300 items = ~25 minutes of offline buffering (~34 KB RAM)
+#define QUEUE_DEPTH 300
+QueueHandle_t dataQueue;
+
 // Synchronization
 SemaphoreHandle_t uartMutex;   // Only one core reads UART at a time
 SemaphoreHandle_t fftMutex;    // Only one core uses shared FFT arrays at a time
@@ -334,66 +353,35 @@ void analyzeAndPrint(TaskCtx &c, int coreID) {
   xSemaphoreGive(serialMutex);
 
   // ==========================================
-  // HTTPS POST directly to Cloud Server (Render)
-  // Retries up to 3 times (10s apart) to survive Render cold-starts
-  // on first power-on. Normal operation never needs a retry since the
-  // server stays awake as long as we send data every ~5 seconds.
+  // Push computed stats to the networking queue.
+  // The dedicated network task (Core 0) handles the HTTPS POST
+  // asynchronously — this call returns in microseconds.
   // ==========================================
-  if (WiFi.status() == WL_CONNECTED) {
-    char jsonPayload[1024];
-    snprintf(jsonPayload, sizeof(jsonPayload),
-        "{\"core\":%d,\"samples\":%lu,\"sample_rate\":%.3f,\"record_start\":%lu,\"record_stop\":%lu,"
-        "\"max\":%.6f,\"min\":%.6f,\"mean\":%.6f,\"std_dev\":%.6f,\"skewness\":%.6f,\"kurtosis\":%.6f,"
-        "\"max_x\":%.6f,\"min_x\":%.6f,\"mean_x\":%.6f,"
-        "\"freq\":[%.3f,%.3f,%.3f,%.3f,%.3f],\"mag\":[%.6f,%.6f,%.6f,%.6f,%.6f]}",
-        coreID, c.samples, SAMPLE_RATE, c.recordStart, c.recordStop,
-        c.maxZ, c.minZ, c.meanZ, stdDevZ, skewnessZ, kurtosisZ,
-        c.maxX, c.minX, c.meanX,
-        peakFreq[0], peakFreq[1], peakFreq[2], peakFreq[3], peakFreq[4],
-        peakMag[0], peakMag[1], peakMag[2], peakMag[3], peakMag[4]);
+  DataPayload payload;
+  payload.coreID      = coreID;
+  payload.samples     = c.samples;
+  payload.recordStart = c.recordStart;
+  payload.recordStop  = c.recordStop;
+  payload.maxZ        = (float)c.maxZ;
+  payload.minZ        = (float)c.minZ;
+  payload.meanZ       = (float)c.meanZ;
+  payload.stdDevZ     = (float)stdDevZ;
+  payload.skewnessZ   = (float)skewnessZ;
+  payload.kurtosisZ   = (float)kurtosisZ;
+  payload.maxX        = (float)c.maxX;
+  payload.minX        = (float)c.minX;
+  payload.meanX       = (float)c.meanX;
+  for (int i = 0; i < 5; i++) {
+    payload.peakFreq[i] = peakFreq[i];
+    payload.peakMag[i]  = peakMag[i];
+  }
 
-    const int MAX_RETRIES   = 3;
-    const int RETRY_DELAY_S = 10;  // wait 10s between attempts (Render wakes in ~30s)
-    bool posted = false;
-
-    for (int attempt = 1; attempt <= MAX_RETRIES && !posted; attempt++) {
-      WiFiClientSecure client;
-      client.setInsecure();    // Bypass certificate validation (fixes Connection Refused without needing NTP time sync)
-
-      HTTPClient http;
-      http.begin(client, serverUrl);
-      http.addHeader("Content-Type", "application/json");
-      http.addHeader("X-API-Key", "babadasohue");  // matches ESP32_API_KEY on Render
-      http.setTimeout(25000);       // 25s — longer than Render cold-start
-
-      int code = http.POST(jsonPayload);
-      http.end();
-
-      xSemaphoreTake(serialMutex, portMAX_DELAY);
-      if (code > 0) {
-        Serial.printf("[Core %d] HTTPS POST OK (attempt %d/%d), Code: %d\n",
-                      coreID, attempt, MAX_RETRIES, code);
-        posted = true;
-      } else {
-        Serial.printf("[Core %d] HTTPS POST failed (attempt %d/%d): %s\n",
-                      coreID, attempt, MAX_RETRIES,
-                      http.errorToString(code).c_str());
-        if (attempt < MAX_RETRIES) {
-          Serial.printf("[Core %d] Render may be waking up — retrying in %ds...\n",
-                        coreID, RETRY_DELAY_S);
-        } else {
-          Serial.printf("[Core %d] All retries exhausted — packet dropped.\n", coreID);
-        }
-      }
-      xSemaphoreGive(serialMutex);
-
-      if (!posted && attempt < MAX_RETRIES) {
-        vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_S * 1000));
-      }
-    }
-  } else {
+  // xQueueSend with 0 timeout: never blocks the recording task.
+  // If the queue is full (>25 min backlog) the payload is dropped gracefully.
+  if (xQueueSend(dataQueue, &payload, 0) != pdTRUE) {
     xSemaphoreTake(serialMutex, portMAX_DELAY);
-    Serial.printf("[Core %d] WiFi Disconnected, skipping HTTPS POST\n", coreID);
+    Serial.printf("[Core %d] [WARN] Queue full (%d items) — payload dropped.\n",
+                  coreID, QUEUE_DEPTH);
     xSemaphoreGive(serialMutex);
   }
 }
@@ -442,8 +430,96 @@ void task2Fn(void *pvParams) {
   }
 }
 
+// ============================================================
+// Networking Task — pinned to Core 0 (where WiFi stack lives)
+// Pops DataPayload items from dataQueue and sends HTTPS POST.
+// When WiFi is down: waits 5s and retries — recording never stalls.
+// When WiFi recovers: drains backlog automatically.
+// ============================================================
+void networkTaskFn(void* pvParams) {
+  // Single reusable TLS client — avoids heap fragmentation from
+  // creating/destroying WiFiClientSecure on every request.
+  WiFiClientSecure tlsClient;
+  tlsClient.setInsecure(); // Bypass cert validation (no NTP needed)
+
+  DataPayload payload;
+
+  while (true) {
+    // Block here with zero CPU burn until a payload arrives
+    if (xQueueReceive(dataQueue, &payload, portMAX_DELAY) != pdTRUE) continue;
+
+    // If WiFi is down, hold the payload and wait for reconnection
+    while (WiFi.status() != WL_CONNECTED) {
+      xSemaphoreTake(serialMutex, portMAX_DELAY);
+      Serial.printf("[NET] WiFi down — queue depth: %u — retrying in 5s...\n",
+                    (unsigned)uxQueueMessagesWaiting(dataQueue) + 1);
+      xSemaphoreGive(serialMutex);
+      vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+
+    // Build JSON from the lightweight struct
+    char jsonPayload[1024];
+    snprintf(jsonPayload, sizeof(jsonPayload),
+        "{\"core\":%d,\"samples\":%lu,\"sample_rate\":%.3f,"
+        "\"record_start\":%lu,\"record_stop\":%lu,"
+        "\"max\":%.6f,\"min\":%.6f,\"mean\":%.6f,"
+        "\"std_dev\":%.6f,\"skewness\":%.6f,\"kurtosis\":%.6f,"
+        "\"max_x\":%.6f,\"min_x\":%.6f,\"mean_x\":%.6f,"
+        "\"freq\":[%.3f,%.3f,%.3f,%.3f,%.3f],"
+        "\"mag\":[%.6f,%.6f,%.6f,%.6f,%.6f]}",
+        payload.coreID, payload.samples, SAMPLE_RATE,
+        payload.recordStart, payload.recordStop,
+        payload.maxZ, payload.minZ, payload.meanZ,
+        payload.stdDevZ, payload.skewnessZ, payload.kurtosisZ,
+        payload.maxX, payload.minX, payload.meanX,
+        payload.peakFreq[0], payload.peakFreq[1], payload.peakFreq[2],
+        payload.peakFreq[3], payload.peakFreq[4],
+        payload.peakMag[0], payload.peakMag[1], payload.peakMag[2],
+        payload.peakMag[3], payload.peakMag[4]);
+
+    // Attempt POST — up to 3 retries (handles Render cold-starts)
+    const int MAX_RETRIES   = 3;
+    const int RETRY_DELAY_S = 10;
+    bool posted = false;
+
+    for (int attempt = 1; attempt <= MAX_RETRIES && !posted; attempt++) {
+      HTTPClient http;
+      http.begin(tlsClient, serverUrl);
+      http.addHeader("Content-Type", "application/json");
+      http.addHeader("X-API-Key", "babadasohue");
+      http.setTimeout(25000);
+
+      int code = http.POST(jsonPayload);
+      http.end();
+
+      xSemaphoreTake(serialMutex, portMAX_DELAY);
+      if (code > 0) {
+        Serial.printf("[NET] POST OK — Core %d | attempt %d/%d | code %d | queue: %u\n",
+                      payload.coreID, attempt, MAX_RETRIES, code,
+                      (unsigned)uxQueueMessagesWaiting(dataQueue));
+        posted = true;
+      } else {
+        Serial.printf("[NET] POST failed — Core %d | attempt %d/%d | %s\n",
+                      payload.coreID, attempt, MAX_RETRIES,
+                      HTTPClient::errorToString(code).c_str());
+        if (attempt < MAX_RETRIES) {
+          Serial.printf("[NET] Render may be waking up — retrying in %ds...\n", RETRY_DELAY_S);
+        } else {
+          Serial.println("[NET] All retries exhausted — payload dropped.");
+        }
+      }
+      xSemaphoreGive(serialMutex);
+
+      if (!posted && attempt < MAX_RETRIES) {
+        vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_S * 1000));
+      }
+    }
+  }
+}
+
 TaskHandle_t task1Handle = NULL;
 TaskHandle_t task2Handle = NULL;
+TaskHandle_t netTaskHandle = NULL;
 
 void setup() {
   Serial.begin(115200);
@@ -470,8 +546,19 @@ void setup() {
   Serial.println("Core 0: Idles 0-5s, Records 5-10s, Analyzes 10-15s, repeat");
   Serial.println("------------------------------------------------------\n");
 
-  xTaskCreatePinnedToCore(task1Fn, "Task_Core1", 32000, &ctx1, 1, &task1Handle, 1);
-  xTaskCreatePinnedToCore(task2Fn, "Task_Core0", 32000, &ctx2, 1, &task2Handle, 0);
+  // Create the networking queue before launching any task
+  dataQueue = xQueueCreate(QUEUE_DEPTH, sizeof(DataPayload));
+  if (dataQueue == NULL) {
+    Serial.println("[FATAL] Failed to create dataQueue — halting.");
+    while (true) vTaskDelay(1000);
+  }
+  Serial.printf("[INIT] dataQueue ready (%d slots, ~%u bytes RAM)\n",
+                QUEUE_DEPTH, (unsigned)(QUEUE_DEPTH * sizeof(DataPayload)));
+
+  xTaskCreatePinnedToCore(task1Fn,      "Task_Core1", 32000, &ctx1, 1, &task1Handle,  1);
+  xTaskCreatePinnedToCore(task2Fn,      "Task_Core0", 32000, &ctx2, 1, &task2Handle,  0);
+  // Network task on Core 0 — same core as WiFi stack (required for stable WiFi)
+  xTaskCreatePinnedToCore(networkTaskFn, "Task_Net",  32000, NULL,  1, &netTaskHandle, 0);
 }
 
 void loop() {
