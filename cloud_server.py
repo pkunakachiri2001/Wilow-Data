@@ -274,7 +274,7 @@ def get_axis_data(axis='Z', last_n_minutes=None, start_time=None, end_time=None)
         frequencies     = [r[11] for r in rows]  # fft1_freq
 
         datetime_labels = [
-            datetime.fromtimestamp(ts).isoformat() for ts in timestamps
+            datetime.fromtimestamp(ts).astimezone().isoformat() for ts in timestamps
         ]
 
         valid_freqs = [f for f in frequencies if f is not None]
