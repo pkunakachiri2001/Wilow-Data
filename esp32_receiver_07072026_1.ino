@@ -18,9 +18,9 @@ static const char* root_ca = \
 "-----BEGIN CERTIFICATE-----\n"
 "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n"
 "TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\n"
-"cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\n"
+"cmNoIEdyb3VwMRUwUQBNOrnQlzo3ftqm0Jj5Sf9zEHlPApapd-rWsAHREzkweiTw\n"
 "WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\n"
-"ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\n"
+"ZXQgU2VjdXJpdHkgUQBNOrnQlzo3ftqm0Jj5Sf9zEHlPApapd-rWsAHREzkweiTw\n"
 "MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoBggIBAK3oJHP0FDfzm54rVygc\n"
 "h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n"
 "0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\n"
@@ -433,27 +433,27 @@ void task2Fn(void *pvParams) {
 // ============================================================
 // Networking Task — pinned to Core 0 (where WiFi stack lives)
 // Pops DataPayload items from dataQueue and sends HTTPS POST.
-// When WiFi is down: waits 5s and retries — recording never stalls.
+// When WiFi is down: explicitly reconnects.
 // When WiFi recovers: drains backlog automatically.
 // ============================================================
 void networkTaskFn(void* pvParams) {
-  // Single reusable TLS client — avoids heap fragmentation from
-  // creating/destroying WiFiClientSecure on every request.
-  WiFiClientSecure tlsClient;
-  tlsClient.setInsecure(); // Bypass cert validation (no NTP needed)
-
   DataPayload payload;
+  int consecutiveFailures = 0;
 
   while (true) {
     // Block here with zero CPU burn until a payload arrives
     if (xQueueReceive(dataQueue, &payload, portMAX_DELAY) != pdTRUE) continue;
 
-    // If WiFi is down, hold the payload and wait for reconnection
+    // If WiFi is down, explicitly disconnect and force a reconnect
     while (WiFi.status() != WL_CONNECTED) {
       xSemaphoreTake(serialMutex, portMAX_DELAY);
-      Serial.printf("[NET] WiFi down — queue depth: %u — retrying in 5s...\n",
+      Serial.printf("[NET] WiFi down — queue depth: %u — reconnecting...\n",
                     (unsigned)uxQueueMessagesWaiting(dataQueue) + 1);
       xSemaphoreGive(serialMutex);
+      
+      WiFi.disconnect();
+      vTaskDelay(pdMS_TO_TICKS(500));
+      WiFi.begin(ssid, password);
       vTaskDelay(pdMS_TO_TICKS(5000));
     }
 
@@ -482,11 +482,15 @@ void networkTaskFn(void* pvParams) {
     const int RETRY_DELAY_S = 10;
     bool posted = false;
 
+    // Fresh TLS client per payload prevents zombie TLS socket state
+    WiFiClientSecure tlsClient;
+    tlsClient.setInsecure(); // Bypass cert validation
+
     for (int attempt = 1; attempt <= MAX_RETRIES && !posted; attempt++) {
       HTTPClient http;
       http.begin(tlsClient, serverUrl);
       http.addHeader("Content-Type", "application/json");
-      http.addHeader("X-API-Key", "babadasohue");
+      http.addHeader("X-API-Key", "dasponge"); // Using the API key from your snippet
       http.setTimeout(25000);
 
       int code = http.POST(jsonPayload);
@@ -498,6 +502,7 @@ void networkTaskFn(void* pvParams) {
                       payload.coreID, attempt, MAX_RETRIES, code,
                       (unsigned)uxQueueMessagesWaiting(dataQueue));
         posted = true;
+        consecutiveFailures = 0; // Reset consecutive failures on success
       } else {
         Serial.printf("[NET] POST failed — Core %d | attempt %d/%d | %s\n",
                       payload.coreID, attempt, MAX_RETRIES,
@@ -512,6 +517,19 @@ void networkTaskFn(void* pvParams) {
 
       if (!posted && attempt < MAX_RETRIES) {
         vTaskDelay(pdMS_TO_TICKS(RETRY_DELAY_S * 1000));
+      }
+    }
+
+    // Self-healing Watchdog: 10 consecutive network failures triggers a reboot
+    if (!posted) {
+      consecutiveFailures++;
+      if (consecutiveFailures >= 10) {
+        xSemaphoreTake(serialMutex, portMAX_DELAY);
+        Serial.println("\n[FATAL] 10 consecutive network failures detected!");
+        Serial.println("[FATAL] Rebooting ESP32 to self-heal network stack...\n");
+        xSemaphoreGive(serialMutex);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        ESP.restart();
       }
     }
   }
