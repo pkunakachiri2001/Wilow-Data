@@ -21,6 +21,8 @@ from datetime import datetime
 from threading import Lock
 
 import db  # shared Neon module
+import joblib
+import numpy as np
 
 # ================= CONFIGURATION =================
 STATIC_DIR   = "static"
@@ -68,6 +70,59 @@ latest_status = {
 # At 15k rows/day, this covers ~33 days of local server being offline.
 # When exceeded, oldest OVERFLOW_DELETE_N rows are trimmed automatically.
 MAX_NEON_ROWS     = 500_000
+
+# ================= AI MODEL LOADING =================
+AI_MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'anomaly_detector')
+scaler_path = os.path.join(AI_MODEL_DIR, 'scaler.joblib')
+model_path = os.path.join(AI_MODEL_DIR, 'isolation_forest_model.joblib')
+
+try:
+    ai_scaler = joblib.load(scaler_path)
+    ai_model = joblib.load(model_path)
+    print(f"[AI MODEL] Successfully loaded Isolation Forest and Scaler from {AI_MODEL_DIR}")
+except Exception as e:
+    ai_scaler = None
+    ai_model = None
+    print(f"[AI MODEL ERROR] Failed to load models: {e}. AI anomaly detection disabled.")
+
+def evaluate_ai_anomaly(parsed):
+    if ai_model is None or ai_scaler is None:
+        return None, None
+        
+    try:
+        # Extract the exact 19 features the model was trained on
+        features = [
+            parsed.get('max_az', 0.0), parsed.get('min_az', 0.0), parsed.get('mean_az', 0.0),
+            parsed.get('std_az', 0.0), parsed.get('skewness_az', 0.0), parsed.get('kurtosis_az', 0.0),
+            parsed.get('max_ax', 0.0), parsed.get('min_ax', 0.0), parsed.get('mean_ax', 0.0)
+        ]
+        
+        # Add 5 FFT peaks
+        fft_peaks = parsed.get('fft_peaks', [])
+        for i in range(5):
+            if i < len(fft_peaks):
+                features.append(fft_peaks[i][0]) # Frequency
+                features.append(fft_peaks[i][1]) # Magnitude
+            else:
+                features.extend([0.0, 0.0])
+                
+        # Scale
+        X = np.array(features).reshape(1, -1)
+        X_scaled = ai_scaler.transform(X)
+        
+        # Evaluate
+        score = ai_model.decision_function(X_scaled)[0]
+        
+        # Convert raw score (approx -0.5 to 0.5) to confidence percentage 0-100%
+        # using a sigmoid function where score=0 is 50%.
+        confidence = 100 * (1 / (1 + np.exp(20 * score)))
+        
+        status = 'Anomaly' if confidence > 90 else 'Normal'
+        return float(confidence), status
+        
+    except Exception as e:
+        print(f"[AI EVAL ERROR] {e}")
+        return None, None
 OVERFLOW_DELETE_N = 10_000
 
 # ================= DB INIT =================
@@ -503,21 +558,28 @@ def receive_esp32_data():
                 print(f"[OK] Max_Az={max_az:.4f}")
 
         top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
+        # ---- AI Model Check ----
+        ai_confidence, ai_status = evaluate_ai_anomaly(parsed)
+        
         with status_lock:
             latest_status['timestamp'] = datetime.fromtimestamp(epoch_t).strftime('%Y-%m-%d %H:%M:%S')
             latest_status['magnitude'] = max_az or 0
             latest_status['frequency'] = top_freq
+            latest_status['ai_confidence'] = ai_confidence
+            latest_status['ai_status'] = ai_status
 
-            if alert_status:
-                latest_status['status']     = f'{alert_status} Threshold'
+            if alert_status or (ai_status == 'Anomaly'):
+                cause = alert_status if alert_status else 'AI Model'
+                latest_status['status']     = f'{cause} Threshold'
                 latest_status['alert']      = True
-                latest_status['alert_type'] = f'Z-Axis {alert_status} Threshold'
+                latest_status['alert_type'] = f'Z-Axis {cause} Threshold'
                 latest_status['alert_time'] = latest_status['timestamp']
                 socketio.emit('alert_notification', {
-                    'alert_type': f'Z-Axis {alert_status} Threshold',
+                    'alert_type': f'Z-Axis {cause} Threshold',
                     'timestamp':  latest_status['timestamp'],
                     'magnitude':  max_az,
-                    'axis':       'Z'
+                    'axis':       'Z',
+                    'ai_confidence': ai_confidence
                 })
             else:
                 latest_status['status']     = 'Normal'

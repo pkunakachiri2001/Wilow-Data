@@ -706,6 +706,10 @@
                     <span class="status-value" id="currentFrequency">--</span>
                 </div>
                 <div class="status-item">
+                    <span class="status-label">AI Confidence</span>
+                    <span class="status-value" id="aiConfidence">--</span>
+                </div>
+                <div class="status-item">
                     <span class="status-label">Updated</span>
                     <span class="status-value" id="lastUpdate">--</span>
                 </div>
@@ -1606,6 +1610,12 @@
                     const statusDate = new Date(status.timestamp.replace(' ', 'T') + 'Z');
                     document.getElementById('lastUpdate').textContent = statusDate.toLocaleTimeString([], { hour12: false });
                 }
+                if (status.ai_confidence !== undefined && status.ai_confidence !== null) {
+                    document.getElementById('aiConfidence').textContent = 
+                        parseFloat(status.ai_confidence).toFixed(1) + '%';
+                } else {
+                    document.getElementById('aiConfidence').textContent = '--';
+                }
 
                 if (status.alert) {
                     document.getElementById('alertInfo').textContent = 
@@ -1684,8 +1694,11 @@
             statusBar.classList.add('alert-active');
             
             const alertTime = new Date(alert.timestamp.replace(' ', 'T') + 'Z').toLocaleTimeString([], { hour12: false });
-            document.getElementById('alertInfo').textContent = 
-                `🔴 ${alert.alert_type} at ${alertTime} | ${alert.axis}: ${parseFloat(alert.magnitude).toFixed(2)} m/s²`;
+            let alertText = `🔴 ${alert.alert_type} at ${alertTime} | ${alert.axis}: ${parseFloat(alert.magnitude).toFixed(2)} m/s²`;
+            if (alert.ai_confidence) {
+                alertText += ` | AI Conf: ${parseFloat(alert.ai_confidence).toFixed(1)}%`;
+            }
+            document.getElementById('alertInfo').textContent = alertText;
             document.getElementById('alertInfo').classList.remove('no-alert');
 
             requestGraphData();
