@@ -15,10 +15,12 @@
             box-sizing: border-box;
         }
 
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
         body {
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-            background: #0f172a;
-            color: #f1f5f9;
+            font-family: 'Outfit', 'Inter', 'Segoe UI', sans-serif;
+            background: radial-gradient(circle at 50% 0%, #1e293b 0%, #0b0f19 100%);
+            color: #f8fafc;
             height: 100vh;
             overflow: hidden;
             display: flex;
@@ -27,18 +29,21 @@
 
         /* ========== STATUS BAR ========== */
         .status-bar {
-            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-            padding: 12px 20px;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 15px 25px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            border-bottom: 1px solid #334155;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             flex-shrink: 0;
+            z-index: 10;
         }
 
         .status-bar.alert-active {
-            background: linear-gradient(135deg, #991b1b 0%, #b91c1c 100%);
+            background: rgba(153, 27, 27, 0.8);
             animation: pulse-alert 1.5s ease-in-out infinite;
         }
 
@@ -47,16 +52,29 @@
             50% { opacity: 0.85; }
         }
 
-        .logo-placeholder {
-            border: 2px dashed #475569;
+        .wilo-logo {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .wilo-logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
             border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #64748b;
-            font-size: 10px;
-            text-align: center;
-            background: rgba(15, 23, 42, 0.3);
+            color: white;
+            font-size: 18px;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
         }
 
         .status-center {
@@ -228,13 +246,16 @@
         }
 
         .controls-bar {
-            background: #1e293b;
-            padding: 15px 20px;
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            padding: 15px 25px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid #334155;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             flex-shrink: 0;
+            z-index: 5;
         }
 
         .control-group {
@@ -322,14 +343,21 @@
         }
 
         .graph-column {
-            background: #1e293b;
-            border-radius: 12px;
-            padding: 25px;  /* Increased from 20px to give more space */
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            border: 1px solid #334155;
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .graph-column:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.4);
         }
 
         .column-header {
@@ -400,11 +428,18 @@
         }
 
         .waveform-box {
-            background: #1e293b;
-            border-radius: 12px;
-            padding: 12px 15px;  /* Reduced from 20px to make more compact */
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            border: 1px solid #334155;
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 15px 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .waveform-box:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.4);
         }
 
         .waveform-header {
@@ -496,6 +531,92 @@
                 grid-column: 1;
             }
         }
+
+        @media (max-width: 768px) {
+            body {
+                overflow: auto; /* Allow scrolling on small screens */
+            }
+
+            .status-bar {
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 10px 15px;
+                gap: 15px;
+            }
+
+            .status-center {
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 0;
+                width: 100%;
+                gap: 10px;
+            }
+
+            .status-right {
+                flex-wrap: wrap;
+                justify-content: flex-start;
+                gap: 10px;
+                width: 100%;
+            }
+            
+            .status-item {
+                align-items: flex-start;
+                flex: 1 1 45%; /* Two columns for status items on mobile */
+            }
+
+            .controls-bar {
+                flex-direction: column;
+                align-items: stretch;
+                padding: 10px 15px;
+                gap: 10px;
+            }
+
+            .control-group {
+                flex-wrap: wrap;
+            }
+
+            .time-filter-container {
+                flex-direction: column;
+            }
+
+            .filter-tabs {
+                border-right: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                overflow-x: auto; /* Allow tabs to scroll horizontally if needed */
+            }
+
+            .filter-tab {
+                flex: 1;
+                border-right: 1px solid rgba(255, 255, 255, 0.05);
+            }
+
+            .filter-content-area {
+                padding: 10px 0;
+                justify-content: center;
+            }
+
+            .filter-content {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .main-grid {
+                padding: 10px;
+                gap: 10px;
+            }
+
+            .graph-column {
+                padding: 15px;
+            }
+
+            .waveform-row {
+                grid-template-columns: 1fr;
+            }
+
+            .waveform-box {
+                padding: 10px;
+            }
+        }
     
         .status-middle {
             flex: 1;
@@ -544,17 +665,16 @@
 <body>
     <!-- STATUS BAR -->
     <div class="status-bar" id="statusBar">
-        <!-- LEFT LOGO - STRETCHED WIDER -->
-	<div class="logo-placeholder" id="companyLogo" style="width: 220px; height: 65px; margin-right: -5px;">
-    	    <img src="/static/CYRUS.jpg" 
-         	style="width:100%;height:100%;object-fit:contain" 
-         	onerror="this.onerror=null; this.parentElement.innerHTML='Company<br>Logo';">
-	</div>
+        <!-- LEFT LOGO - WILO VIBRATIONS -->
+        <div class="wilo-logo">
+            <div class="wilo-logo-icon">W</div>
+            Wilo Vibrations
+        </div>
 
         <!-- CENTER STATUS -->
         <div class="status-center">
             <div class="status-left">
-                <h1>🔧 Vibration Monitor v3.0</h1>
+                <h1 style="display:none;">Vibration Monitor</h1>
                 <div class="alert-info no-alert" id="alertInfo">
                     No alerts
                 </div>
@@ -591,13 +711,8 @@
                 </div>
             </div>
         </div>
-
-        <!-- RIGHT LOGO - STRETCHED WIDER -->
-	<div class="logo-placeholder" id="collegeLogo" style="width: 220px; height: 65px; margin-left: -5px;">
-    	    <img src="/static/VU-LOGO.jpg" 
-         	style="width:100%;height:100%;object-fit:contain"
-         	onerror="this.onerror=null; this.parentElement.innerHTML='College<br>Logo';">
-	</div>
+        
+        <div style="width: 150px;"></div> <!-- Spacer to balance flexbox -->
     </div>
 
     <!-- CONTROLS BAR -->
@@ -889,13 +1004,8 @@
                                 color: darkColors.text, 
                                 font: { size: 10 },
                                 callback: function(value, index, values) {
-                                    const defaultLabel = this.getLabelForValue(value);
-                                    if (typeof filterStart !== 'undefined' && filterStart && filterEnd && (filterEnd - filterStart) > 172800) {
-                                        const date = new Date(value);
-                                        const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                                        return [defaultLabel, dateStr];
-                                    }
-                                    return defaultLabel;
+                                    const date = new Date(value);
+                                    return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                 }
                             }
                         },
@@ -983,13 +1093,8 @@
                                 color: darkColors.text, 
                                 font: { size: 10 },
                                 callback: function(value, index, values) {
-                                    const defaultLabel = this.getLabelForValue(value);
-                                    if (typeof filterStart !== 'undefined' && filterStart && filterEnd && (filterEnd - filterStart) > 172800) {
-                                        const date = new Date(value);
-                                        const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                                        return [defaultLabel, dateStr];
-                                    }
-                                    return defaultLabel;
+                                    const date = new Date(value);
+                                    return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                 }
                             }
                         },
@@ -1435,7 +1540,7 @@
         let filterEnd = null;
         // On cloud: always locked to 10 minutes. On local: controlled by the dropdown.
         let filterMinutes = 10;
-        const IS_CLOUD = {{ 'true' if is_cloud else 'false' }};
+        const IS_CLOUD = "{{ 'true' if is_cloud else 'false' }}" === "true";
         
         function setFilterMode(mode) {
             filterMode = mode;
@@ -1498,8 +1603,8 @@
                         parseFloat(status.frequency).toFixed(1) + ' Hz';
                 }
                 if (status.timestamp) {
-                    document.getElementById('lastUpdate').textContent = 
-                        new Date(status.timestamp).toLocaleTimeString();
+                    const statusDate = new Date(status.timestamp);
+                    document.getElementById('lastUpdate').textContent = statusDate.toLocaleTimeString('en-US', { hour12: true });
                 }
 
                 if (status.alert) {
