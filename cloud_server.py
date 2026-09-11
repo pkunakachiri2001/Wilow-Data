@@ -4,12 +4,12 @@ Identical logic to server.py but:
   - No local CSV writes (Render filesystem is ephemeral)
   - All storage goes to Neon DB via db.py
   - Reads data from Neon DB for /api/axis_data
-  - Uses eventlet async_mode for Render compatibility
+  - Uses gevent async_mode for Render compatibility
   - /health endpoint prevents Render sleep (ping via UptimeRobot)
 """
 
-import eventlet
-eventlet.monkey_patch()  # MUST be first import — patches stdlib for async
+from gevent import monkey
+monkey.patch_all()  # MUST be first import — patches stdlib for async
 
 from flask import Flask, request, jsonify, render_template
 from flask_socketio import SocketIO, emit
@@ -45,7 +45,7 @@ THRESHOLDS = {
 app = Flask(__name__, static_folder=STATIC_DIR, template_folder=TEMPLATE_DIR)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'vibration-cloud-key')
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 # ---- ESP32 API Key (optional but recommended) ----
 # Set ESP32_API_KEY in Render environment variables.

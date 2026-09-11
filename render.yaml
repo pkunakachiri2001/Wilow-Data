@@ -3,7 +3,7 @@ services:
     name: vibration-monitor
     env: python
     buildCommand: pip install -r requirements_cloud.txt
-    startCommand: gunicorn --worker-class eventlet -w 1 cloud_server:app
+    startCommand: gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 cloud_server:app
     plan: free
     envVars:
       - key: DATABASE_URL
