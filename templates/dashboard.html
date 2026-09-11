@@ -1603,8 +1603,8 @@
                         parseFloat(status.frequency).toFixed(1) + ' Hz';
                 }
                 if (status.timestamp) {
-                    const statusDate = new Date(status.timestamp);
-                    document.getElementById('lastUpdate').textContent = statusDate.toLocaleTimeString('en-US', { hour12: true });
+                    const statusDate = new Date(status.timestamp.replace(' ', 'T') + 'Z');
+                    document.getElementById('lastUpdate').textContent = statusDate.toLocaleTimeString([], { hour12: false });
                 }
 
                 if (status.alert) {
@@ -1683,7 +1683,7 @@
             const statusBar = document.getElementById('statusBar');
             statusBar.classList.add('alert-active');
             
-            const alertTime = new Date(alert.timestamp).toLocaleTimeString();
+            const alertTime = new Date(alert.timestamp.replace(' ', 'T') + 'Z').toLocaleTimeString([], { hour12: false });
             document.getElementById('alertInfo').textContent = 
                 `🔴 ${alert.alert_type} at ${alertTime} | ${alert.axis}: ${parseFloat(alert.magnitude).toFixed(2)} m/s²`;
             document.getElementById('alertInfo').classList.remove('no-alert');
