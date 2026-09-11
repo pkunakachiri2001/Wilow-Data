@@ -331,6 +331,171 @@
             box-shadow: 0 0 12px rgba(6, 182, 212, 0.5);
         }
 
+        /* ========== EVENT LOGGING UI ========== */
+        .event-actions {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .event-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .event-btn {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .event-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.6);
+        }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            right: 0;
+            background-color: rgba(17, 24, 39, 0.95);
+            min-width: 220px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .event-dropdown:hover .dropdown-content {
+            display: block;
+            animation: fadeIn 0.2s ease;
+        }
+        .dropdown-content a {
+            color: #e2e8f0;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .dropdown-content a:hover {
+            background-color: rgba(239, 68, 68, 0.2);
+            color: white;
+        }
+        .dropdown-content a:last-child {
+            border-bottom: none;
+        }
+        .library-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .library-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+        
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            backdrop-filter: blur(5px);
+        }
+        .modal-content {
+            background: linear-gradient(145deg, #1e293b, #0f172a);
+            margin: 10% auto;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            width: 80%;
+            max-width: 700px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            color: white;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 15px;
+            margin-bottom: 15px;
+        }
+        .close-modal {
+            color: #94a3b8;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .close-modal:hover {
+            color: white;
+        }
+        .events-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .events-table th, .events-table td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .events-table th {
+            color: #94a3b8;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+        .download-link {
+            color: #3b82f6;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .download-link:hover {
+            text-decoration: underline;
+        }
+
+        
+        /* ========== EVENT LOGGING UI ========== */
+        .event-actions { display: flex; gap: 15px; align-items: center; }
+        .event-dropdown { position: relative; display: inline-block; }
+        .event-btn { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-family: 'Outfit', sans-serif; font-weight: 600; font-size: 0.9rem; cursor: pointer; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4); transition: all 0.3s ease; display: flex; align-items: center; gap: 8px; }
+        .event-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(239, 68, 68, 0.6); }
+        .dropdown-content { display: none; position: absolute; right: 0; background-color: rgba(17, 24, 39, 0.95); min-width: 220px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; z-index: 1000; backdrop-filter: blur(10px); margin-top: 10px; overflow: hidden; }
+        .event-dropdown:hover .dropdown-content { display: block; }
+        .dropdown-content a { color: #e2e8f0; padding: 12px 16px; text-decoration: none; display: block; font-size: 0.9rem; transition: background 0.2s; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .dropdown-content a:hover { background-color: rgba(239, 68, 68, 0.2); color: white; }
+        .library-btn { background: rgba(255, 255, 255, 0.1); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.2); padding: 10px 15px; border-radius: 8px; font-family: 'Outfit', sans-serif; font-size: 0.9rem; cursor: pointer; transition: all 0.3s ease; }
+        .library-btn:hover { background: rgba(255, 255, 255, 0.2); color: white; }
+        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); backdrop-filter: blur(5px); }
+        .modal-content { background: linear-gradient(145deg, #1e293b, #0f172a); margin: 10% auto; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; width: 80%; max-width: 700px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); color: white; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; margin-bottom: 15px; }
+        .close-modal { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .events-table { width: 100%; border-collapse: collapse; }
+        .events-table th, .events-table td { text-align: left; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .download-link { color: #3b82f6; text-decoration: none; font-weight: 600; }
+
         /* ========== MAIN GRID ========== */
         .main-grid {
             flex: 1;
@@ -791,6 +956,32 @@
                 <button class="axis-btn active" data-axis="X">X</button>
             </div>
         </div>
+        
+        <!-- EVENT LOGGING & LIBRARY -->
+        <div class="control-group event-actions">
+            <button class="library-btn" onclick="openEventsModal()">
+                <i class="fas fa-folder-open"></i> Event Library
+            </button>
+            
+            <div class="event-dropdown">
+                <button class="event-btn">
+                    <i class="fas fa-exclamation-triangle"></i> Log Event
+                </button>
+                <div class="dropdown-content">
+                    <a href="#" onclick="logEvent('Bearing Failure'); return false;">Bearing Failure</a>
+                    <a href="#" onclick="logEvent('Stator Winding Fault'); return false;">Stator Winding Fault</a>
+                    <a href="#" onclick="logEvent('Rotor Bar Damage'); return false;">Rotor Bar Damage</a>
+                    <a href="#" onclick="logEvent('Shaft Misalignment'); return false;">Shaft Misalignment</a>
+                    <a href="#" onclick="logEvent('Mechanical Unbalance'); return false;">Mechanical Unbalance</a>
+                    <a href="#" onclick="logEvent('Mechanical Looseness'); return false;">Mechanical Looseness</a>
+                    <a href="#" onclick="logEvent('Voltage Imbalance'); return false;">Voltage Imbalance</a>
+                    <a href="#" onclick="logEvent('Cavitation or Load Issue'); return false;">Cavitation or Load Issue</a>
+                    <a href="#" onclick="logEvent('Gearbox Fault'); return false;">Gearbox Fault</a>
+                    <a href="#" onclick="logEvent('Overheating'); return false;">Overheating</a>
+                    <a href="#" onclick="logEvent('Unknown Fault'); return false;" style="color: #ef4444; font-weight: bold;">Unknown Fault</a>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- MAIN GRID -->
@@ -873,6 +1064,34 @@
         </div>
     </div>
 
+    <!-- EVENTS MODAL -->
+    <div id="eventsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 style="margin: 0; font-size: 1.5rem; display: flex; align-items: center; gap: 10px;">
+                    <i class="fas fa-folder-open" style="color: #60a5fa;"></i> Event Library
+                </h2>
+                <span class="close-modal" onclick="closeEventsModal()">&times;</span>
+            </div>
+            <div style="max-height: 400px; overflow-y: auto;">
+                <table class="events-table">
+                    <thead>
+                        <tr>
+                            <th>Fault Type</th>
+                            <th>Filename (Timestamp)</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="eventsTableBody">
+                        <tr>
+                            <td colspan="3" style="text-align: center; color: #94a3b8;">Loading events...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ========== GLOBAL STATE ==========
         const socket = typeof io !== 'undefined' ? io() : { on: function(){}, emit: function(){} };
@@ -915,6 +1134,133 @@
                 over_negative: t.over_negative
             };
         }
+
+        // ========== EVENT LOGGING FUNCTIONS ==========
+        function showToast(message, duration = 3000) {
+            let container = document.getElementById('toastContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px;';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            toast.style.cssText = 'background: rgba(15, 23, 42, 0.95); color: #f8fafc; padding: 12px 20px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 25px rgba(0,0,0,0.5); font-size: 14px; font-weight: 600; backdrop-filter: blur(10px);';
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        async function logEvent(faultType) {
+            showToast(`Logging event: ${faultType}...`, 3000);
+            try {
+                const response = await fetch('/api/log_event', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fault_type: faultType })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showToast(`✅ Event saved: ${faultType}`, 5000);
+                } else {
+                    showToast(`❌ Error: ${result.message}`, 5000);
+                }
+            } catch (err) {
+                showToast(`❌ Error connecting to server`, 5000);
+            }
+        }
+
+        function openEventsModal() {
+            document.getElementById('eventsModal').style.display = 'block';
+            fetchEvents();
+        }
+
+        function closeEventsModal() {
+            document.getElementById('eventsModal').style.display = 'none';
+        }
+
+        async function fetchEvents() {
+            const tbody = document.getElementById('eventsTableBody');
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #94a3b8;">Loading...</td></tr>';
+            try {
+                const response = await fetch('/api/events');
+                const events = await response.json();
+                
+                if (events.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #94a3b8;">No events recorded yet.</td></tr>';
+                    return;
+                }
+                
+                // Sort by filename descending (newest first)
+                events.sort((a, b) => b.filename.localeCompare(a.filename));
+                
+                tbody.innerHTML = events.map(e => `
+                    <tr>
+                        <td style="font-weight: 600;">${e.fault_type}</td>
+                        <td style="color: #94a3b8;">${e.filename}</td>
+                        <td><a href="/api/events/download/${e.path}" class="download-link" target="_blank"><i class="fas fa-download"></i> Download CSV</a></td>
+                    </tr>
+                `).join('');
+            } catch (err) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #ef4444;">Error loading events.</td></tr>';
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('eventsModal');
+            if (event.target == modal) {
+                closeEventsModal();
+            }
+        }
+
+
+        // ========== EVENT LOGGING FUNCTIONS ==========
+        function showToast(msg, duration=3000) {
+            let container = document.getElementById('toastContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px;';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            toast.style.cssText = 'background: rgba(15, 23, 42, 0.95); color: #f8fafc; padding: 12px 20px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 25px rgba(0,0,0,0.5); font-weight: 600; backdrop-filter: blur(10px);';
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s ease'; setTimeout(() => toast.remove(), 300); }, duration);
+        }
+
+        async function logEvent(faultType) {
+            showToast(`Logging event: ${faultType}...`);
+            try {
+                const res = await fetch('/api/log_event', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fault_type: faultType })
+                });
+                if (res.ok) showToast('✅ Event saved: ' + faultType, 5000);
+                else showToast('❌ Error saving event', 5000);
+            } catch(e) { showToast('❌ Connection error', 5000); }
+        }
+        function openEventsModal() { document.getElementById('eventsModal').style.display = 'block'; fetchEvents(); }
+        function closeEventsModal() { document.getElementById('eventsModal').style.display = 'none'; }
+        async function fetchEvents() {
+            const tbody = document.getElementById('eventsTableBody');
+            tbody.innerHTML = '<tr><td colspan="3">Loading...</td></tr>';
+            try {
+                const res = await fetch('/api/events');
+                const events = await res.json();
+                if (events.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="color:#94a3b8;">No events.</td></tr>'; return; }
+                events.sort((a,b) => b.filename.localeCompare(a.filename));
+                tbody.innerHTML = events.map(e => `<tr><td style="font-weight:600;">${e.fault_type}</td><td style="color:#94a3b8;">${e.filename}</td><td><a href="/api/events/download/${e.path}" class="download-link" target="_blank"><i class="fas fa-download"></i> Download CSV</a></td></tr>`).join('');
+            } catch(e) { tbody.innerHTML = '<tr><td colspan="3" style="color:#ef4444;">Error.</td></tr>'; }
+        }
+        window.onclick = function(e) { if (e.target == document.getElementById('eventsModal')) closeEventsModal(); }
 
         // ========== CHART INITIALIZATION ==========
         function initCharts() {

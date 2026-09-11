@@ -62,8 +62,12 @@ latest_status = {
     'alert':      None,
     'alert_time': None,
     'magnitude':  0,
-    'frequency':  0
+    'frequency':  0,
+    'ai_confidence': None,
+    'ai_status': None
 }
+
+last_ai_auto_event_time = 0  # Timestamp of last auto-extraction
 
 # ---- Neon transit buffer overflow protection ----
 # At ~392 bytes/row, 500k rows = ~196 MB, well within 512 MB Neon free limit.
@@ -352,6 +356,47 @@ def get_axis_data(axis='Z', last_n_minutes=None, start_time=None, end_time=None)
         return None
 
 
+# ================= EVENT EXTRACTION =================
+def extract_and_save_event(fault_type: str):
+    try:
+        # Create folder structure
+        # Safe folder name
+        safe_fault_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in fault_type).strip()
+        events_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'events', safe_fault_name)
+        os.makedirs(events_dir, exist_ok=True)
+        
+        # Fetch last 10 minutes of raw data
+        rows = db.fetch_rows_for_chart(last_n_minutes=10)
+        if not rows:
+            return False, "No data available in the last 10 minutes."
+            
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"event_{timestamp}.csv"
+        filepath = os.path.join(events_dir, filename)
+        
+        # Columns from db.fetch_rows_for_chart:
+        # (date, time_sec, max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,
+        #  max_ax, min_ax, mean_ax, fft1_freq, fft1_mag, ...)
+        
+        import csv
+        with open(filepath, 'w', newline='') as f:
+            writer = csv.writer(f)
+            header = [
+                'Date', 'Time_sec', 
+                'Max_Az', 'Min_Az', 'Mean_Az', 'Std_Az', 'Skewness_Az', 'Kurtosis_Az',
+                'Max_Ax', 'Min_Ax', 'Mean_Ax',
+                'FFT1_Freq', 'FFT1_Mag', 'FFT2_Freq', 'FFT2_Mag', 'FFT3_Freq', 'FFT3_Mag',
+                'FFT4_Freq', 'FFT4_Mag', 'FFT5_Freq', 'FFT5_Mag'
+            ]
+            writer.writerow(header)
+            writer.writerows(rows)
+            
+        return True, f"Event saved successfully to {os.path.join('events', safe_fault_name, filename)}"
+    except Exception as e:
+        print(f"[ERROR] extract_and_save_event: {e}")
+        return False, str(e)
+
+
 # ================= ROUTES =================
 @app.route("/")
 def home():
@@ -558,8 +603,21 @@ def receive_esp32_data():
                 print(f"[OK] Max_Az={max_az:.4f}")
 
         top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
-        # ---- AI Model Check ----
+        # ---- AI Model Check & Auto-Trigger ----
+        global last_ai_auto_event_time
         ai_confidence, ai_status = evaluate_ai_anomaly(parsed)
+        
+        if ai_status == 'Anomaly' and ai_confidence > 90.0:
+            now_ts = datetime.now().timestamp()
+            # 10 minute cooldown (600 seconds)
+            if (now_ts - last_ai_auto_event_time) > 600:
+                print(f"[AI AUTO-TRIGGER] Anomaly detected with {ai_confidence:.1f}% confidence. Extracting event...")
+                success, msg = extract_and_save_event("Unknown Event Detected")
+                if success:
+                    last_ai_auto_event_time = now_ts
+                    print(f"[AI AUTO-TRIGGER] {msg}")
+                else:
+                    print(f"[AI AUTO-TRIGGER] Failed: {msg}")
         
         with status_lock:
             latest_status['timestamp'] = datetime.fromtimestamp(epoch_t).strftime('%Y-%m-%d %H:%M:%S')
@@ -622,6 +680,50 @@ def api_latest_status():
 @app.route("/api/thresholds")
 def api_thresholds():
     return jsonify(THRESHOLDS)
+
+
+@app.route("/api/log_event", methods=["POST"])
+def api_log_event():
+    data = request.get_json()
+    if not data or 'fault_type' not in data:
+        return jsonify({"error": "fault_type is required"}), 400
+        
+    fault_type = data['fault_type']
+    success, msg = extract_and_save_event(fault_type)
+    
+    if success:
+        return jsonify({"status": "success", "message": msg}), 200
+    else:
+        return jsonify({"status": "error", "message": msg}), 500
+
+
+@app.route("/api/events")
+def api_list_events():
+    events_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'events')
+    if not os.path.exists(events_dir):
+        return jsonify([])
+        
+    files_list = []
+    for root, dirs, files in os.walk(events_dir):
+        for file in files:
+            if file.endswith('.csv'):
+                fault_type = os.path.basename(root)
+                rel_path = f"{fault_type}/{file}"
+                files_list.append({
+                    "fault_type": fault_type,
+                    "filename": file,
+                    "path": rel_path
+                })
+    return jsonify(files_list)
+
+
+@app.route("/api/events/download/<path:filepath>")
+def api_download_event(filepath):
+    from flask import send_from_directory
+    events_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'events')
+    directory = os.path.join(events_dir, os.path.dirname(filepath))
+    filename = os.path.basename(filepath)
+    return send_from_directory(directory, filename, as_attachment=True)
 
 
 # ================= SOCKETIO =================
