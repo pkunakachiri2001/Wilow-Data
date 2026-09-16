@@ -50,21 +50,30 @@ def _get_pool():
 def _get_conn():
     """
     Fetch a connection from the pool.
+    Pings the connection with SELECT 1 to ensure it's alive.
     If the pool is poisoned by a stale Neon connection, reset it entirely
     so the next request gets a fresh healthy connection instead of failing.
     """
     global _pool
-    try:
-        return _get_pool().getconn()
-    except psycopg2.OperationalError:
-        print("[DB] OperationalError on getconn — Neon idle disconnect detected. Resetting pool.")
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
-            if _pool and not _pool.closed:
-                _pool.closeall()
-        except Exception:
-            pass
-        _pool = None
-        return _get_pool().getconn()
+            conn = _get_pool().getconn()
+            # Ping the connection to ensure it is alive
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            return conn
+        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+            print(f"[DB] Stale connection detected on getconn (attempt {attempt+1}): {e}. Resetting pool.")
+            try:
+                if _pool and not _pool.closed:
+                    _pool.closeall()
+            except Exception:
+                pass
+            _pool = None
+            
+    # Fallback to returning a fresh connection on the last try
+    return _get_pool().getconn()
 
 
 def _put_conn(conn):

@@ -121,7 +121,7 @@ def evaluate_ai_anomaly(parsed):
         # using a sigmoid function where score=0 is 50%.
         confidence = 100 * (1 / (1 + np.exp(20 * score)))
         
-        status = 'Anomaly' if confidence > 90 else 'Normal'
+        status = 'Anomaly' if confidence > 97 else 'Normal'
         return float(confidence), status
         
     except Exception as e:
@@ -607,7 +607,7 @@ def receive_esp32_data():
         global last_ai_auto_event_time
         ai_confidence, ai_status = evaluate_ai_anomaly(parsed)
         
-        if ai_status == 'Anomaly' and ai_confidence > 90.0:
+        if ai_status == 'Anomaly' and ai_confidence > 97.0:
             now_ts = datetime.now().timestamp()
             # 10 minute cooldown (600 seconds)
             if (now_ts - last_ai_auto_event_time) > 600:

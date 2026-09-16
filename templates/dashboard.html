@@ -825,6 +825,238 @@
             50% { opacity: 0.4; box-shadow: 0 0 0px rgba(248,113,113,0); }
             100% { opacity: 1; box-shadow: 0 0 15px rgba(248,113,113,0.6); }
         }
+
+        /* ========== THEME TOGGLE BUTTON ========== */
+        .theme-toggle-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #f1f5f9;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            font-size: 17px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            flex-shrink: 0;
+        }
+        .theme-toggle-btn:hover {
+            background: rgba(255,255,255,0.22);
+            transform: rotate(20deg) scale(1.1);
+        }
+
+        /* ========== LIGHT THEME OVERRIDES ========== */
+        [data-theme="light"] body {
+            background: radial-gradient(circle at 50% 0%, #dbeafe 0%, #f0f4f8 100%);
+            color: #0f172a;
+        }
+        [data-theme="light"] .status-bar {
+            background: rgba(241,245,249,0.97);
+            border-bottom-color: rgba(0,0,0,0.07);
+        }
+        [data-theme="light"] .controls-bar {
+            background: rgba(226,232,240,0.92);
+            border-bottom-color: rgba(0,0,0,0.07);
+        }
+        [data-theme="light"] .graph-column,
+        [data-theme="light"] .waveform-box {
+            background: rgba(255,255,255,0.88);
+            border-color: rgba(0,0,0,0.07);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        [data-theme="light"] .wilo-logo {
+            background: linear-gradient(135deg, #2563eb 0%, #0891b2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        [data-theme="light"] .status-value { color: #0f172a; }
+        [data-theme="light"] .status-label { color: #475569; }
+        [data-theme="light"] .column-title { color: #2563eb; }
+        [data-theme="light"] .column-title.secondary { color: #0891b2; }
+        [data-theme="light"] .time-filter-container { background: #e2e8f0; border-color: #cbd5e1; }
+        [data-theme="light"] .filter-tabs { border-right-color: #cbd5e1; }
+        [data-theme="light"] .filter-tab { color: #475569; }
+        [data-theme="light"] .filter-tab:hover { background: #cbd5e1; color: #0f172a; }
+        [data-theme="light"] .metric-buttons { background: #e2e8f0; }
+        [data-theme="light"] .metric-btn { color: #475569; }
+        [data-theme="light"] .metric-btn:hover { background: #cbd5e1; color: #0f172a; }
+        [data-theme="light"] .axis-btn { background: #cbd5e1; border-color: #94a3b8; color: #0f172a; }
+        [data-theme="light"] .control-label { color: #475569; }
+        [data-theme="light"] .waveform-title { color: #475569; }
+        [data-theme="light"] .threshold-legend { border-top-color: #cbd5e1; }
+        [data-theme="light"] .custom-input { background: #e2e8f0; color: #0f172a; border-color: #94a3b8; color-scheme: light; }
+        [data-theme="light"] .library-btn { background: rgba(0,0,0,0.07); color: #475569; border-color: rgba(0,0,0,0.15); }
+        [data-theme="light"] .library-btn:hover { background: rgba(0,0,0,0.12); color: #0f172a; }
+        [data-theme="light"] .theme-toggle-btn { background: rgba(0,0,0,0.07); border-color: rgba(0,0,0,0.14); color: #0f172a; }
+        [data-theme="light"] .data-status-message.success { background: rgba(34,197,94,0.12); }
+        [data-theme="light"] .data-status-message.error { background: rgba(220,38,38,0.1); }
+        [data-theme="light"] .alert-info.no-alert { color: #475569; }
+
+        /* ========== AI CONFIDENCE GAUGE ========== */
+        .gauge-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+        }
+        .gauge-label-top {
+            font-size: 10px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        [data-theme="light"] .gauge-label-top { color: #475569; }
+        .gauge-track {
+            fill: none;
+            stroke: rgba(255,255,255,0.09);
+            stroke-width: 4;
+            stroke-linecap: round;
+        }
+        [data-theme="light"] .gauge-track { stroke: rgba(0,0,0,0.1); }
+        .gauge-fill {
+            fill: none;
+            stroke-width: 4;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.65s cubic-bezier(0.4,0,0.2,1), stroke 0.65s ease, filter 0.65s ease;
+            transform-origin: 20px 20px;
+            transform: rotate(-90deg);
+        }
+        .gauge-value-text {
+            font-size: 9px;
+            font-weight: 700;
+            text-anchor: middle;
+            dominant-baseline: central;
+            fill: #f1f5f9;
+            transition: fill 0.65s ease;
+            font-family: 'Outfit', sans-serif;
+        }
+        [data-theme="light"] .gauge-value-text { fill: #0f172a; }
+
+        /* ========== ANOMALY BADGE ========== */
+        .anomaly-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ef4444;
+            color: white;
+            font-size: 10px;
+            font-weight: 800;
+            min-width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            box-shadow: 0 0 10px rgba(239,68,68,0.8);
+            animation: badgePulse 2s infinite;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .anomaly-badge.visible { display: flex; }
+        @keyframes badgePulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 10px rgba(239,68,68,0.8); }
+            50% { transform: scale(1.18); box-shadow: 0 0 18px rgba(239,68,68,1); }
+        }
+        .event-dropdown { position: relative; } /* ensure relative is set */
+
+        /* ========== HEALTH SCORE KPI STRIP ========== */
+        .health-strip {
+            background: rgba(11, 17, 32, 0.45);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            padding: 8px 25px;
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            flex-shrink: 0;
+            transition: background 0.4s ease;
+        }
+        [data-theme="light"] .health-strip {
+            background: rgba(219,234,254,0.55);
+            border-bottom-color: rgba(0,0,0,0.06);
+        }
+        .health-score-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .health-score-circle {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            font-weight: 800;
+            transition: background 0.6s ease, color 0.6s ease, box-shadow 0.6s ease;
+            position: relative;
+        }
+        .health-score-circle::after {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            border: 2px solid currentColor;
+            opacity: 0.35;
+            transition: border-color 0.6s ease;
+        }
+        .health-score-good { background: rgba(16,185,129,0.18); color: #10b981; box-shadow: 0 0 14px rgba(16,185,129,0.3); }
+        .health-score-warn { background: rgba(245,158,11,0.18); color: #f59e0b; box-shadow: 0 0 14px rgba(245,158,11,0.3); }
+        .health-score-bad  { background: rgba(239,68,68,0.18);  color: #ef4444; box-shadow: 0 0 14px rgba(239,68,68,0.3); }
+        .health-title { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+        .health-subtitle { font-size: 10px; color: #64748b; transition: color 0.4s; }
+        [data-theme="light"] .health-title { color: #475569; }
+        [data-theme="light"] .health-subtitle { color: #64748b; }
+        .health-divider { width: 1px; height: 38px; background: rgba(255,255,255,0.07); flex-shrink: 0; }
+        [data-theme="light"] .health-divider { background: rgba(0,0,0,0.08); }
+        .health-sub-kpis { display: flex; gap: 18px; flex: 1; align-items: center; }
+        .health-sub-kpi { display: flex; flex-direction: column; gap: 4px; min-width: 100px; }
+        .kpi-label { font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.4px; }
+        [data-theme="light"] .kpi-label { color: #64748b; }
+        .kpi-bar-wrap { display: flex; align-items: center; gap: 7px; }
+        .kpi-bar-bg { flex: 1; height: 5px; background: rgba(255,255,255,0.07); border-radius: 3px; overflow: hidden; }
+        [data-theme="light"] .kpi-bar-bg { background: rgba(0,0,0,0.09); }
+        .kpi-bar-fill { height: 100%; border-radius: 3px; transition: width 0.65s ease, background 0.65s ease; width: 0%; }
+        .kpi-value { font-size: 11px; font-weight: 700; min-width: 36px; text-align: right; transition: color 0.65s ease; }
+        .health-status-text {
+            font-size: 10px;
+            margin-left: auto;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            transition: all 0.6s ease;
+            flex-shrink: 0;
+        }
+        .health-status-good { background: rgba(16,185,129,0.15); color: #10b981; }
+        .health-status-warn { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .health-status-bad  { background: rgba(239,68,68,0.15);  color: #ef4444; }
+
+        /* ========== TREND BADGE ========== */
+        .trend-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 9px;
+            border-radius: 6px;
+            transition: all 0.45s ease;
+            white-space: nowrap;
+            display: none;
+        }
+        .trend-stable { background: rgba(100,116,139,0.18); color: #94a3b8; }
+        .trend-good   { background: rgba(16,185,129,0.15);  color: #10b981; }
+        .trend-warn   { background: rgba(245,158,11,0.18);  color: #f59e0b; }
+        .trend-danger { background: rgba(239,68,68,0.18);   color: #ef4444; animation: trendPulse 1.5s infinite; }
+        @keyframes trendPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
 </style>
 </head>
 <body>
@@ -870,9 +1102,17 @@
                     <span class="status-label">Frequency</span>
                     <span class="status-value" id="currentFrequency">--</span>
                 </div>
-                <div class="status-item">
-                    <span class="status-label">AI Confidence</span>
-                    <span class="status-value" id="aiConfidence">--</span>
+                <div class="status-item gauge-wrap">
+                    <span class="gauge-label-top">AI Confidence</span>
+                    <svg width="44" height="44" viewBox="0 0 40 40" style="overflow:visible;">
+                        <circle class="gauge-track" cx="20" cy="20" r="16"
+                            stroke-dasharray="100.5" stroke-dashoffset="0"/>
+                        <circle class="gauge-fill" id="gaugeArc" cx="20" cy="20" r="16"
+                            stroke="#10b981"
+                            stroke-dasharray="100.5"
+                            stroke-dashoffset="100.5"/>
+                        <text class="gauge-value-text" id="gaugeText" x="20" y="20">--</text>
+                    </svg>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Updated</span>
@@ -881,7 +1121,45 @@
             </div>
         </div>
         
-        <div style="width: 150px;"></div> <!-- Spacer to balance flexbox -->
+        <div style="width:150px;display:flex;align-items:center;justify-content:flex-end;gap:10px;">
+            <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Toggle dark / light mode">🌙</button>
+        </div>
+    </div>
+
+    <!-- HEALTH SCORE KPI STRIP -->
+    <div class="health-strip" id="healthStrip">
+        <div class="health-score-wrap">
+            <div class="health-score-circle health-score-good" id="healthCircle">--</div>
+            <div>
+                <div class="health-title">Machine Health</div>
+                <div class="health-subtitle" id="healthSubtitle">Calculating...</div>
+            </div>
+        </div>
+        <div class="health-divider"></div>
+        <div class="health-sub-kpis">
+            <div class="health-sub-kpi">
+                <span class="kpi-label">Threshold Safety</span>
+                <div class="kpi-bar-wrap">
+                    <div class="kpi-bar-bg"><div class="kpi-bar-fill" id="kpiThreshBar" style="background:#10b981;"></div></div>
+                    <span class="kpi-value" id="kpiThreshVal" style="color:#10b981;">--%</span>
+                </div>
+            </div>
+            <div class="health-sub-kpi">
+                <span class="kpi-label">AI Safety Score</span>
+                <div class="kpi-bar-wrap">
+                    <div class="kpi-bar-bg"><div class="kpi-bar-fill" id="kpiAiBar" style="background:#10b981;"></div></div>
+                    <span class="kpi-value" id="kpiAiVal" style="color:#10b981;">--%</span>
+                </div>
+            </div>
+            <div class="health-sub-kpi">
+                <span class="kpi-label">Alert Penalty</span>
+                <div class="kpi-bar-wrap">
+                    <div class="kpi-bar-bg"><div class="kpi-bar-fill" id="kpiAlertBar" style="background:#10b981;"></div></div>
+                    <span class="kpi-value" id="kpiAlertVal" style="color:#10b981;">0 alerts</span>
+                </div>
+            </div>
+        </div>
+        <span class="health-status-text health-status-good" id="healthStatusText">Healthy</span>
     </div>
 
     <!-- CONTROLS BAR -->
@@ -964,6 +1242,7 @@
             </button>
             
             <div class="event-dropdown">
+                <span class="anomaly-badge" id="anomalyBadge">0</span>
                 <button class="event-btn">
                     <i class="fas fa-exclamation-triangle"></i> Log Event
                 </button>
@@ -990,7 +1269,10 @@
         <div class="graph-column">
             <div class="column-header">
                 <span class="column-title">PRIMARY (Z-Axis)</span>
-                <span class="freq-badge" id="freqBadgePrimary">-- Hz</span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="trend-badge" id="trendBadgePrimary"></span>
+                    <span class="freq-badge" id="freqBadgePrimary">-- Hz</span>
+                </div>
             </div>
             <div class="chart-wrapper">
                 <canvas id="primaryChart"></canvas>
@@ -1019,7 +1301,10 @@
         <div class="graph-column">
             <div class="column-header">
                 <span class="column-title secondary">SECONDARY (X-Axis)</span>
-                <span class="freq-badge" id="freqBadgeSecondary">-- Hz</span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="trend-badge" id="trendBadgeSecondary"></span>
+                    <span class="freq-badge" id="freqBadgeSecondary">-- Hz</span>
+                </div>
             </div>
             <div class="chart-wrapper">
                 <canvas id="secondaryChart"></canvas>
@@ -1107,6 +1392,14 @@
 
         // Chart instances
         let primaryChart, secondaryChart, waveformPrimaryChart, waveformSecondaryChart;
+
+        // ========== HEALTH & TREND GLOBALS ==========
+        let sessionAnomalyCount = 0;
+        let healthAiBuffer = [];        // Rolling last 20 ai_confidence readings
+        let healthAlertCount = 0;       // Alerts fired this session
+        let trendBufferPrimary = [];    // Rolling last 20 avg values — Z-axis
+        let trendBufferSecondary = [];  // Rolling last 20 avg values — secondary axis
+        const TREND_BUFFER_SIZE = 20;
 
         // ========== THRESHOLD HELPERS ==========
         async function loadThresholds() {
@@ -1576,6 +1869,16 @@
 
             applyChartTimeBounds(primaryChart);
             primaryChart.update();
+
+            // Update predictive trend arrow
+            const _latestAvgP = data.avg && data.avg.length > 0 ? data.avg[data.avg.length - 1] : null;
+            if (_latestAvgP !== null) {
+                trendBufferPrimary.push(_latestAvgP);
+                if (trendBufferPrimary.length > TREND_BUFFER_SIZE) trendBufferPrimary.shift();
+            }
+            const _overThreshP = thresholds && thresholds.z_axis && thresholds.z_axis[currentMetric]
+                ? thresholds.z_axis[currentMetric].over_positive : null;
+            updateTrendBadge('trendBadgePrimary', trendBufferPrimary, _overThreshP);
             
             // Update waveform reconstruction
             updatePrimaryWaveform(data);
@@ -1599,6 +1902,14 @@
 
             applyChartTimeBounds(secondaryChart);
             secondaryChart.update();
+
+            // Update predictive trend arrow
+            const _latestAvgS = data.avg && data.avg.length > 0 ? data.avg[data.avg.length - 1] : null;
+            if (_latestAvgS !== null) {
+                trendBufferSecondary.push(_latestAvgS);
+                if (trendBufferSecondary.length > TREND_BUFFER_SIZE) trendBufferSecondary.shift();
+            }
+            updateTrendBadge('trendBadgeSecondary', trendBufferSecondary, null);
             
             // Update waveform reconstruction
             updateSecondaryWaveform(data);
@@ -1957,10 +2268,13 @@
                     document.getElementById('lastUpdate').textContent = statusDate.toLocaleTimeString([], { hour12: false });
                 }
                 if (status.ai_confidence !== undefined && status.ai_confidence !== null) {
-                    document.getElementById('aiConfidence').textContent = 
-                        parseFloat(status.ai_confidence).toFixed(1) + '%';
+                    const conf = parseFloat(status.ai_confidence);
+                    updateGauge(conf);
+                    healthAiBuffer.push(conf);
+                    if (healthAiBuffer.length > TREND_BUFFER_SIZE) healthAiBuffer.shift();
+                    updateHealthScore();
                 } else {
-                    document.getElementById('aiConfidence').textContent = '--';
+                    updateGauge(null);
                 }
 
                 if (status.alert) {
@@ -2047,6 +2361,13 @@
             document.getElementById('alertInfo').textContent = alertText;
             document.getElementById('alertInfo').classList.remove('no-alert');
 
+            // Increment anomaly badge counter
+            sessionAnomalyCount++;
+            healthAlertCount++;
+            const _badge = document.getElementById('anomalyBadge');
+            if (_badge) { _badge.textContent = sessionAnomalyCount; _badge.classList.add('visible'); }
+            updateHealthScore();
+
             requestGraphData();
             fetchStatus();
         });
@@ -2054,11 +2375,168 @@
         // ========== INITIALIZATION ==========
         document.addEventListener('DOMContentLoaded', () => {
             initCharts();
+            initTheme();
             updateThresholdLines(currentMetric);
             
             setInterval(requestGraphData, 5000);
             setInterval(fetchStatus, 2000);
         });
+
+        // ========== AI CONFIDENCE GAUGE ==========
+        function updateGauge(confidence) {
+            const arc  = document.getElementById('gaugeArc');
+            const text = document.getElementById('gaugeText');
+            if (!arc || !text) return;
+            const C = 100.53; // 2 * PI * 16
+            if (confidence === null || confidence === undefined || isNaN(confidence)) {
+                arc.style.strokeDashoffset = C;
+                text.textContent = '--';
+                arc.style.stroke = '#475569';
+                arc.style.filter = '';
+                return;
+            }
+            const pct    = Math.min(100, Math.max(0, confidence));
+            const offset = C - (pct / 100) * C;
+            arc.style.strokeDashoffset = offset;
+            text.textContent = pct.toFixed(0) + '%';
+            if (pct > 97) {
+                arc.style.stroke  = '#ef4444';
+                arc.style.filter  = 'drop-shadow(0 0 5px #ef4444)';
+            } else if (pct > 80) {
+                arc.style.stroke  = '#f97316';
+                arc.style.filter  = '';
+            } else if (pct > 50) {
+                arc.style.stroke  = '#f59e0b';
+                arc.style.filter  = '';
+            } else {
+                arc.style.stroke  = '#10b981';
+                arc.style.filter  = '';
+            }
+        }
+
+        // ========== HEALTH SCORE KPI ==========
+        function updateHealthScore() {
+            // AI Safety: 100 - avg(recent confidence readings)
+            let aiScore = 100;
+            if (healthAiBuffer.length > 0) {
+                const avgConf = healthAiBuffer.reduce((a,b) => a + b, 0) / healthAiBuffer.length;
+                aiScore = Math.max(0, 100 - avgConf);
+            }
+            // Alert Penalty: -10 per alert, min 0
+            const alertScore = Math.max(0, 100 - healthAlertCount * 10);
+            // Threshold safety — proxy from AI score
+            const threshScore = Math.min(100, Math.round(aiScore * 0.8 + 20));
+            // Composite weighted average
+            const composite = Math.round(aiScore * 0.55 + alertScore * 0.3 + threshScore * 0.15);
+            const score = Math.min(100, Math.max(0, composite));
+
+            const circle     = document.getElementById('healthCircle');
+            const subtitle   = document.getElementById('healthSubtitle');
+            const statusText = document.getElementById('healthStatusText');
+            if (!circle) return;
+
+            circle.textContent = score;
+            if (score >= 80) {
+                circle.className   = 'health-score-circle health-score-good';
+                subtitle.textContent = 'Operating normally';
+                statusText.textContent = 'Healthy';
+                statusText.className   = 'health-status-text health-status-good';
+            } else if (score >= 50) {
+                circle.className   = 'health-score-circle health-score-warn';
+                subtitle.textContent = 'Monitor closely';
+                statusText.textContent = 'Warning';
+                statusText.className   = 'health-status-text health-status-warn';
+            } else {
+                circle.className   = 'health-score-circle health-score-bad';
+                subtitle.textContent = 'Attention required';
+                statusText.textContent = 'Critical';
+                statusText.className   = 'health-status-text health-status-bad';
+            }
+            const aiColor     = aiScore    >= 80 ? '#10b981' : aiScore    >= 50 ? '#f59e0b' : '#ef4444';
+            const alertColor  = alertScore >= 80 ? '#10b981' : alertScore >= 50 ? '#f59e0b' : '#ef4444';
+            const threshColor = threshScore>= 80 ? '#10b981' : threshScore>= 50 ? '#f59e0b' : '#ef4444';
+            _setKpi('kpiAiBar',    'kpiAiVal',    Math.round(aiScore),    aiColor);
+            _setKpi('kpiAlertBar', 'kpiAlertVal', alertScore,             alertColor, healthAlertCount + ' alerts');
+            _setKpi('kpiThreshBar','kpiThreshVal',threshScore,            threshColor);
+        }
+        function _setKpi(barId, valId, pct, color, label) {
+            const bar = document.getElementById(barId);
+            const val = document.getElementById(valId);
+            if (!bar || !val) return;
+            bar.style.width      = pct + '%';
+            bar.style.background = color;
+            val.style.color      = color;
+            val.textContent      = label !== undefined ? label : pct + '%';
+        }
+
+        // ========== PREDICTIVE TREND ARROW ==========
+        function _linearSlope(buf) {
+            const n = buf.length;
+            if (n < 3) return 0;
+            let sx=0, sy=0, sxy=0, sx2=0;
+            for (let i=0; i<n; i++) { sx+=i; sy+=buf[i]; sxy+=i*buf[i]; sx2+=i*i; }
+            const d = n*sx2 - sx*sx;
+            return d === 0 ? 0 : (n*sxy - sx*sy) / d;
+        }
+        function updateTrendBadge(badgeId, buffer, overThreshold) {
+            const badge = document.getElementById(badgeId);
+            if (!badge) return;
+            if (buffer.length < 4) { badge.style.display = 'none'; return; }
+            badge.style.display = 'inline-block';
+            const slope   = _linearSlope(buffer);
+            const current = buffer[buffer.length - 1];
+            const STABLE  = 0.015; // per data-point threshold
+            if (Math.abs(slope) < STABLE) {
+                badge.textContent = '→ Stable';
+                badge.className   = 'trend-badge trend-stable';
+            } else if (slope < 0) {
+                badge.textContent = '↓ Improving';
+                badge.className   = 'trend-badge trend-good';
+            } else {
+                if (overThreshold !== null && overThreshold !== undefined) {
+                    const gap = overThreshold - current;
+                    if (gap > 0 && slope > 0) {
+                        const mins = Math.round((gap / slope * 5) / 60); // ~5s per point
+                        if (mins <= 1) {
+                            badge.textContent = '⚠️ Threshold imminent';
+                            badge.className   = 'trend-badge trend-danger';
+                        } else if (mins < 5) {
+                            badge.textContent = `⚠️ ~${mins} min to OVER`;
+                            badge.className   = 'trend-badge trend-danger';
+                        } else if (mins < 20) {
+                            badge.textContent = `↑ ~${mins} min to OVER`;
+                            badge.className   = 'trend-badge trend-warn';
+                        } else {
+                            badge.textContent = '↑ Rising';
+                            badge.className   = 'trend-badge trend-warn';
+                        }
+                    } else {
+                        badge.textContent = '↑ Rising';
+                        badge.className   = 'trend-badge trend-warn';
+                    }
+                } else {
+                    badge.textContent = '↑ Rising';
+                    badge.className   = 'trend-badge trend-warn';
+                }
+            }
+        }
+
+        // ========== DARK / LIGHT THEME TOGGLE ==========
+        function toggleTheme() {
+            const html    = document.documentElement;
+            const isLight = html.getAttribute('data-theme') === 'light';
+            const next    = isLight ? 'dark' : 'light';
+            html.setAttribute('data-theme', next);
+            const btn = document.getElementById('themeToggleBtn');
+            if (btn) btn.textContent = next === 'light' ? '☀️' : '🌙';
+            localStorage.setItem('wilow-theme', next);
+        }
+        function initTheme() {
+            const saved = localStorage.getItem('wilow-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', saved);
+            const btn = document.getElementById('themeToggleBtn');
+            if (btn) btn.textContent = saved === 'light' ? '☀️' : '🌙';
+        }
     </script>
 </body>
 </html>
