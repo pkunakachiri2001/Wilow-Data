@@ -2,8 +2,8 @@
 cloud_server.py — Render (Cloud) Deployment
 Identical logic to server.py but:
   - No local CSV writes (Render filesystem is ephemeral)
-  - All storage goes to Neon DB via db.py
-  - Reads data from Neon DB for /api/axis_data
+  - All storage goes to Aiven DB via db.py
+  - Reads data from Aiven DB for /api/axis_data
   - Uses gevent async_mode for Render compatibility
   - /health endpoint prevents Render sleep (ping via UptimeRobot)
 """
@@ -20,7 +20,7 @@ import random
 from datetime import datetime
 from threading import Lock
 
-import db  # shared Neon module
+import db  # shared Aiven module
 import joblib
 import numpy as np
 
@@ -69,11 +69,11 @@ latest_status = {
 
 last_ai_auto_event_time = 0  # Timestamp of last auto-extraction
 
-# ---- Neon transit buffer overflow protection ----
-# At ~392 bytes/row, 500k rows = ~196 MB, well within 512 MB Neon free limit.
+# ---- Aiven transit buffer overflow protection ----
+# At ~392 bytes/row, 500k rows = ~196 MB, well within 512 MB Aiven free limit.
 # At 15k rows/day, this covers ~33 days of local server being offline.
 # When exceeded, oldest OVERFLOW_DELETE_N rows are trimmed automatically.
-MAX_NEON_ROWS     = 500_000
+MAX_AIVEN_ROWS     = 500_000
 
 # ================= AI MODEL LOADING =================
 AI_MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'anomaly_detector')
@@ -132,7 +132,7 @@ OVERFLOW_DELETE_N = 10_000
 # ================= DB INIT =================
 try:
     db.init_db()
-    print("[CLOUD] Neon DB initialised.")
+    print("[CLOUD] Aiven DB initialised.")
 except Exception as e:
     print(f"[CLOUD WARNING] DB init failed: {e} — will retry on first request.")
 
@@ -304,7 +304,7 @@ def epoch_from_filename(filename):
         return now.strftime('%Y-%m-%d'), now.timestamp()
 
 
-# ================= DATA QUERY (FROM NEON) =================
+# ================= DATA QUERY (FROM AIVEN) =================
 def get_axis_data(axis='Z', last_n_minutes=None, start_time=None, end_time=None):
     try:
         rows = db.fetch_rows_for_chart(
@@ -440,21 +440,21 @@ def upload():
         except OSError:
             pass
 
-        # Build row dict and insert into Neon
+        # Build row dict and insert into Aiven
         row_dict = db.parsed_to_row_dict(parsed, date_str, epoch_t)
         try:
             db.insert_row(row_dict)
         except Exception as db_err:
             print(f"[CLOUD DB WARN] insert_row: {db_err}")
 
-        # ---- Overflow guard: keep Neon lean (ring buffer) ----
+        # ---- Overflow guard: keep Aiven lean (ring buffer) ----
         # Only run the check every ~100 uploads to avoid hammering the DB
         if random.randint(1, 100) == 1:
             try:
                 count = db.get_row_count()
-                if count > MAX_NEON_ROWS:
+                if count > MAX_AIVEN_ROWS:
                     trimmed = db.delete_oldest_rows(OVERFLOW_DELETE_N)
-                    print(f"[OVERFLOW] Neon had {count} rows (>{MAX_NEON_ROWS}). "
+                    print(f"[OVERFLOW] Aiven had {count} rows (>{MAX_AIVEN_ROWS}). "
                           f"Trimmed {trimmed} oldest rows. Local server may have been offline too long.")
             except Exception as ov_err:
                 print(f"[OVERFLOW CHECK ERROR] {ov_err}")
@@ -574,7 +574,7 @@ def receive_esp32_data():
         parsed = _parse_teensy_string(csv_content)
         date_str, epoch_t = datetime.now().strftime('%Y-%m-%d'), datetime.now().timestamp()
 
-        # ---- Insert into Neon DB ----
+        # ---- Insert into Aiven DB ----
         row_dict = db.parsed_to_row_dict(parsed, date_str, epoch_t)
         try:
             db.insert_row(row_dict)
@@ -585,7 +585,7 @@ def receive_esp32_data():
         if random.randint(1, 100) == 1:
             try:
                 count = db.get_row_count()
-                if count > MAX_NEON_ROWS:
+                if count > MAX_AIVEN_ROWS:
                     trimmed = db.delete_oldest_rows(OVERFLOW_DELETE_N)
                     print(f"[OVERFLOW] Trimmed {trimmed} oldest rows (was {count}).")
             except Exception as ov_err:

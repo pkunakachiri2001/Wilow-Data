@@ -1,5 +1,5 @@
 """
-db.py — Shared Neon PostgreSQL module
+db.py — Shared Aiven PostgreSQL module
 Used by both cloud_server.py (Render) and server.py (local)
 All data is stored in the `vibration_data` table.
 Set DATABASE_URL in environment or .env before importing.
@@ -17,23 +17,10 @@ _pool = None
 
 def _make_dsn() -> str:
     """
-    Append TCP keepalive params to DATABASE_URL.
-    Neon serverless Postgres closes idle connections after ~5 min.
-    These params keep the TCP socket alive so psycopg2 detects a dead
-    connection before trying to use it, instead of failing mid-request.
+    Return DATABASE_URL for Aiven DB.
+    (Removed aggressive keepalives used for Neon serverless).
     """
-    base = DATABASE_URL
-    if not base:
-        return base
-    sep = '&' if '?' in base else '?'
-    if 'keepalives' not in base:
-        base += (
-            f"{sep}keepalives=1"
-            "&keepalives_idle=30"
-            "&keepalives_interval=5"
-            "&keepalives_count=5"
-        )
-    return base
+    return DATABASE_URL
 
 
 def _get_pool():
@@ -51,7 +38,7 @@ def _get_conn():
     """
     Fetch a connection from the pool.
     Pings the connection with SELECT 1 to ensure it's alive.
-    If the pool is poisoned by a stale Neon connection, reset it entirely
+    If the pool is poisoned by a stale Aiven connection, reset it entirely
     so the next request gets a fresh healthy connection instead of failing.
     """
     global _pool
@@ -128,7 +115,7 @@ def init_db():
 # ================= WRITE =================
 def insert_row(row_dict: dict):
     """
-    Insert one parsed row into Neon.
+    Insert one parsed row into Aiven.
     Silently skips duplicate time_sec values (ON CONFLICT DO NOTHING).
 
     Expected keys:
@@ -210,7 +197,7 @@ def insert_many_rows(rows: list):
 
 # ================= READ =================
 def get_latest_timestamp() -> float:
-    """Returns the max time_sec stored in Neon, or 0.0 if empty."""
+    """Returns the max time_sec stored in Aiven, or 0.0 if empty."""
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
@@ -227,7 +214,7 @@ def get_latest_timestamp() -> float:
 def fetch_rows_since(epoch_time: float) -> list:
     """
     Fetch all rows with time_sec > epoch_time.
-    Used by local server on startup to sync missed data from Neon.
+    Used by local server on startup to sync missed data from Aiven.
     Returns list of tuples in CSV column order.
     """
     conn = _get_conn()
@@ -328,7 +315,7 @@ def delete_rows_before_epoch(epoch_time: float) -> int:
     """
     Delete all rows with time_sec <= epoch_time.
     Called by local server after a successful sync to acknowledge and
-    purge rows from Neon (keeping it as a lean transit buffer).
+    purge rows from Aiven (keeping it as a lean transit buffer).
     Returns number of rows deleted.
     """
     conn = _get_conn()
@@ -340,7 +327,7 @@ def delete_rows_before_epoch(epoch_time: float) -> int:
             )
             deleted = cur.rowcount
             conn.commit()
-        print(f"[DB] Acknowledged delete: {deleted} rows removed from Neon (epoch <= {epoch_time:.0f}).")
+        print(f"[DB] Acknowledged delete: {deleted} rows removed from Aiven (epoch <= {epoch_time:.0f}).")
         return deleted
     except Exception as e:
         conn.rollback()
@@ -368,7 +355,7 @@ def get_row_count() -> int:
 def delete_oldest_rows(n: int) -> int:
     """
     Delete the n oldest rows by time_sec.
-    Called by cloud server overflow guard when row count exceeds MAX_NEON_ROWS.
+    Called by cloud server overflow guard when row count exceeds MAX_AIVEN_ROWS.
     Returns number of rows deleted.
     """
     conn = _get_conn()

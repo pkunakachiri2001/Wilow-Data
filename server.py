@@ -3,7 +3,7 @@ Flask Server for Vibration Monitoring
 - Parses Teensy CSV file format directly
 - Stores only fields actually present in Teensy output
 - Date-wise data organisation
-- Syncs with Neon PostgreSQL DB on startup and every upload
+- Syncs with Aiven PostgreSQL DB on startup and every upload
 """
 
 from flask import Flask, request, jsonify, render_template, send_from_directory
@@ -25,18 +25,18 @@ try:
 except ImportError:
     pass
 
-# ---- Neon DB (optional — graceful fallback if not configured) ----
+# ---- Aiven DB (optional — graceful fallback if not configured) ----
 DB_ENABLED = False
 try:
     import db as _db
     if os.environ.get('DATABASE_URL'):
         _db.init_db()
         DB_ENABLED = True
-        print("[LOCAL] Neon DB enabled.")
+        print("[LOCAL] Aiven DB enabled.")
     else:
         print("[LOCAL] DATABASE_URL not set — running in local-only mode.")
 except Exception as _db_init_err:
-    print(f"[LOCAL WARNING] Neon DB init failed: {_db_init_err} — local-only mode.")
+    print(f"[LOCAL WARNING] Aiven DB init failed: {_db_init_err} — local-only mode.")
 
 # ================= CONFIGURATION =================
 UPLOAD_DIR = "uploads"
@@ -153,7 +153,7 @@ def initialize_master_csv():
 initialize_master_csv()
 scan_existing_dates()
 
-# ================= NEON STARTUP SYNC =================
+# ================= AIVEN STARTUP SYNC =================
 RPI_CLIENT_URL = os.environ.get('RPI_CLIENT_URL', '')  # e.g. http://192.168.1.50:5000
 
 
@@ -161,7 +161,7 @@ def _pull_from_rpi(last_local_epoch: float):
     """
     Layer 2 recovery: pull missed CSV files directly from the RPi client's
     /list-pending and /fetch-file endpoints.
-    Only used when the laptop has been off so long that Neon overflowed and
+    Only used when the laptop has been off so long that Aiven overflowed and
     trimmed data that wasn't yet synced locally.
     Requires RPI_CLIENT_URL env var to be set.
     """
@@ -208,12 +208,12 @@ def _pull_from_rpi(last_local_epoch: float):
         return 0
 
 
-def sync_from_neon():
+def sync_from_aiven():
     """
     On startup, fill local CSVs from two sources:
-      Layer 1 — Neon DB (rows since last local epoch)
-      Layer 2 — RPi direct pull (for extreme gaps when Neon overflowed)
-    After writing rows locally, DELETES them from Neon (acknowledged transit buffer).
+      Layer 1 — Aiven DB (rows since last local epoch)
+      Layer 2 — RPi direct pull (for extreme gaps when Aiven overflowed)
+    After writing rows locally, DELETES them from Aiven (acknowledged transit buffer).
     """
     if not DB_ENABLED:
         return
@@ -226,7 +226,7 @@ def sync_from_neon():
                 ts_col = pd.to_numeric(df['Time_sec'], errors='coerce')
                 last_local_epoch = float(ts_col.max()) if not ts_col.isna().all() else 0.0
 
-        print(f"[SYNC] Last local epoch: {last_local_epoch} — fetching newer rows from Neon...")
+        print(f"[SYNC] Last local epoch: {last_local_epoch} — fetching newer rows from Aiven...")
         rows = _db.fetch_rows_since(last_local_epoch)
 
         if rows:
@@ -256,7 +256,7 @@ def sync_from_neon():
                     if epoch > max_synced_epoch:
                         max_synced_epoch = epoch
 
-            print(f"[SYNC] ✅ Synced {len(rows)} rows from Neon.")
+            print(f"[SYNC] ✅ Synced {len(rows)} rows from Aiven.")
 
             # ---- Update latest_status from the most recently synced row ----
             # rows are ordered by time_sec ASC, so the last one is the newest.
@@ -285,37 +285,37 @@ def sync_from_neon():
             except Exception as _st_err:
                 print(f"[SYNC] Status update warning (non-fatal): {_st_err}")
 
-            # ---- Acknowledged delete: purge synced rows from Neon ----
+            # ---- Acknowledged delete: purge synced rows from Aiven ----
             try:
                 deleted = _db.delete_rows_before_epoch(max_synced_epoch)
-                print(f"[SYNC] 🗑  Deleted {deleted} acknowledged rows from Neon (transit buffer cleaned).")
+                print(f"[SYNC] 🗑  Deleted {deleted} acknowledged rows from Aiven (transit buffer cleaned).")
             except Exception as del_err:
                 print(f"[SYNC] Delete warning (non-fatal): {del_err}")
                 
             # Tell the local dashboard to refresh its charts
             socketio.emit('data_update', {'type': 'sync', 'count': len(rows)})
         else:
-            # print("[SYNC] Neon: already up to date — no new rows.") # Muted to prevent spam
+            # print("[SYNC] Aiven: already up to date — no new rows.") # Muted to prevent spam
             pass
 
-        # ---- Layer 2: RPi direct pull (catches anything Neon may have trimmed) ----
+        # ---- Layer 2: RPi direct pull (catches anything Aiven may have trimmed) ----
         _pull_from_rpi(last_local_epoch)
 
     except Exception as e:
-        print(f"[SYNC ERROR] Could not sync from Neon: {e} — continuing in local-only mode.")
+        print(f"[SYNC ERROR] Could not sync from Aiven: {e} — continuing in local-only mode.")
 
 def sync_loop():
-    """Background thread to poll Neon DB for new data every 10 seconds"""
+    """Background thread to poll Aiven DB for new data every 10 seconds"""
     print("[SYNC] Background sync thread started.")
     while True:
         try:
-            sync_from_neon()
+            sync_from_aiven()
         except Exception as e:
             print(f"[SYNC LOOP ERROR] {e}")
         time.sleep(10)
 
 # Run initial sync and start background polling
-synced = sync_from_neon()
+synced = sync_from_aiven()
 threading.Thread(target=sync_loop, daemon=True).start()
 
 # ================= THRESHOLD CHECK =================
@@ -479,7 +479,7 @@ def store_teensy_data(filename, parsed, date_str, epoch_time):
             with open(date_csv, 'a', newline='') as f:
                 csv.writer(f).writerow(row)
 
-    # ---- Write to Neon DB (non-blocking, graceful fallback) ----
+    # ---- Write to Aiven DB (non-blocking, graceful fallback) ----
     if DB_ENABLED:
         try:
             row_dict = _db.parsed_to_row_dict(parsed, date_str, epoch_time)

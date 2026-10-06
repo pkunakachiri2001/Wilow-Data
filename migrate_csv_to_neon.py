@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-migrate_csv_to_neon.py — One-time migration script
-Imports all existing master_data.csv rows into the Neon PostgreSQL database.
+migrate_csv_to_aiven.py — One-time migration script
+Imports all existing master_data.csv rows into the Aiven PostgreSQL database.
 
 Usage:
-    DATABASE_URL="postgresql://..." python migrate_csv_to_neon.py
+    DATABASE_URL="postgresql://..." python migrate_csv_to_aiven.py
 
 Safe to run multiple times — uses ON CONFLICT (time_sec) DO NOTHING.
 Handles NUL bytes and other corrupt rows gracefully (skips bad rows).
@@ -70,7 +70,7 @@ def run_migration():
         print(f"[MIGRATE] ERROR: {MASTER_CSV} not found in current directory.")
         sys.exit(1)
 
-    print(f"[MIGRATE] Connecting to Neon DB...")
+    print(f"[MIGRATE] Connecting to Aiven DB...")
     db.init_db()
     print(f"[MIGRATE] Table ready.")
 

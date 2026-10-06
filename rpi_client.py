@@ -219,7 +219,7 @@ def receive_data():
 # ============================================================
 # LAYER 2 RECOVERY ENDPOINTS
 # Called by the local server (laptop) when it wakes up after
-# a long outage to pull files that Neon may have already trimmed.
+# a long outage to pull files that Aiven may have already trimmed.
 # ============================================================
 
 @app.route('/list-pending', methods=['GET'])

@@ -1,10 +1,10 @@
 #!/bin/bash
 # start_local_server.sh
-# Starts the local vibration monitoring server with Neon DB sync.
+# Starts the local vibration monitoring server with Aiven DB sync.
 # On startup, server.py will auto-sync any data missed while offline.
 
 echo "======================================================"
-echo "  Vibration Monitor — Local Server with Neon Sync"
+echo "  Vibration Monitor — Local Server with Aiven Sync"
 echo "======================================================"
 
 # Stop any previous instance
@@ -28,9 +28,9 @@ fi
 
 echo "[INFO] Starting local server on port 5002..."
 if [ -n "$DATABASE_URL" ]; then
-    echo "[INFO] Neon DB: enabled (sync on startup)"
+    echo "[INFO] Aiven DB: enabled (sync on startup)"
 else
-    echo "[INFO] Neon DB: disabled (DATABASE_URL not set — local-only mode)"
+    echo "[INFO] Aiven DB: disabled (DATABASE_URL not set — local-only mode)"
 fi
 
 nohup ./venv/bin/python server.py > server.log 2>&1 &
