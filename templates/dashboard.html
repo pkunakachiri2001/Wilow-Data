@@ -9,20 +9,20 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.2.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
-
         body {
             font-family: 'Outfit', 'Inter', 'Segoe UI', sans-serif;
             background: radial-gradient(circle at 50% 0%, #1e293b 0%, #0b0f19 100%);
             color: #f8fafc;
-            height: 100vh;
-            overflow: hidden;
+            min-height: 100vh;
+            overflow-y: auto;
             display: flex;
             flex-direction: column;
         }
@@ -498,25 +498,21 @@
 
         /* ========== MAIN GRID ========== */
         .main-grid {
-            flex: 1;
             display: grid;
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: 4fr 1fr;  /* Main graphs 4x bigger, waveforms very small */
-            gap: 12px;  /* Reduced gap slightly */
-            padding: 15px;
-            overflow: hidden;
+            gap: 12px;
+            padding: 12px 25px 25px;
         }
 
         .graph-column {
             background: rgba(30, 41, 59, 0.6);
             backdrop-filter: blur(10px);
             border-radius: 16px;
-            padding: 25px;
+            padding: 20px 25px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.3);
             border: 1px solid rgba(255, 255, 255, 0.05);
             display: flex;
             flex-direction: column;
-            overflow: hidden;
             transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
 
@@ -552,9 +548,8 @@
         }
 
         .chart-wrapper {
-            flex: 1;
             position: relative;
-            min-height: 0;
+            height: 320px;
         }
 
         .threshold-legend {
@@ -689,11 +684,6 @@
         @media (max-width: 1200px) {
             .main-grid {
                 grid-template-columns: 1fr;
-                grid-template-rows: 1fr 1fr auto;
-            }
-
-            .waveform-row {
-                grid-column: 1;
             }
         }
 
@@ -846,6 +836,169 @@
             background: rgba(255,255,255,0.22);
             transform: rotate(20deg) scale(1.1);
         }
+
+        /* ========== KPI MEASUREMENT CARDS ========== */
+        .kpi-section {
+            padding: 12px 25px 0;
+            flex-shrink: 0;
+        }
+        .kpi-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #475569;
+            margin-bottom: 10px;
+        }
+        [data-theme="light"] .kpi-section-title { color: #64748b; }
+
+        .kpi-cards-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 12px;
+        }
+        @media (max-width: 900px) {
+            .kpi-cards-row { grid-template-columns: 1fr; }
+        }
+        @media (min-width: 901px) and (max-width: 1200px) {
+            .kpi-cards-row { grid-template-columns: 1fr 1fr; }
+            .kpi-card--displacement { grid-column: 1 / -1; }
+        }
+
+        .kpi-card {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 14px;
+            padding: 16px 20px 14px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: box-shadow 0.25s ease;
+        }
+        .kpi-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
+        .kpi-card--displacement {
+            border-color: rgba(59,130,246,0.25);
+            box-shadow: 0 0 0 1px rgba(59,130,246,0.12) inset;
+        }
+        .kpi-card--velocity {
+            border-color: rgba(6,182,212,0.2);
+        }
+        .kpi-card--acceleration {
+            border-color: rgba(16,185,129,0.2);
+        }
+
+        .kpi-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .kpi-card-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #94a3b8;
+        }
+        .kpi-card--displacement .kpi-card-title { color: #60a5fa; }
+        .kpi-card--velocity     .kpi-card-title { color: #22d3ee; }
+        .kpi-card--acceleration .kpi-card-title { color: #34d399; }
+
+        .kpi-axis-selector {
+            display: flex;
+            gap: 3px;
+            background: rgba(15,23,42,0.5);
+            border-radius: 6px;
+            padding: 2px;
+        }
+        .kpi-axis-btn {
+            padding: 3px 9px;
+            font-size: 11px;
+            font-weight: 700;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
+        .kpi-axis-btn:hover { color: #f1f5f9; background: rgba(255,255,255,0.06); }
+        .kpi-axis-btn[aria-pressed="true"] {
+            background: #3b82f6;
+            color: #fff;
+        }
+        .kpi-card--velocity     .kpi-axis-btn[aria-pressed="true"] { background: #06b6d4; }
+        .kpi-card--acceleration .kpi-axis-btn[aria-pressed="true"] { background: #10b981; }
+
+        .kpi-values-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .kpi-value-block {
+            display: flex;
+            flex-direction: column;
+        }
+        .kpi-value-label {
+            font-size: 10px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+        .kpi-value-num {
+            font-size: 28px;
+            font-weight: 700;
+            line-height: 1.05;
+            color: #f1f5f9;
+            transition: color 0.3s ease;
+            letter-spacing: -0.5px;
+        }
+        .kpi-card--displacement .kpi-value-num { font-size: 36px; }
+        .kpi-value-num.kpi-unavailable {
+            font-size: 20px;
+            color: #475569;
+            font-weight: 400;
+        }
+        .kpi-value-unit {
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 500;
+            margin-top: 1px;
+        }
+        .kpi-freshness {
+            font-size: 10px;
+            color: #475569;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .kpi-freshness.kpi-stale { color: #f59e0b; }
+        .kpi-freshness.kpi-disconnected { color: #ef4444; }
+        .kpi-freshness-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: #10b981;
+            flex-shrink: 0;
+        }
+        .kpi-freshness.kpi-stale .kpi-freshness-dot { background: #f59e0b; }
+        .kpi-freshness.kpi-disconnected .kpi-freshness-dot { background: #ef4444; }
+
+        /* Light theme KPI overrides */
+        [data-theme="light"] .kpi-card {
+            background: rgba(255,255,255,0.9);
+            border-color: rgba(0,0,0,0.07);
+            box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+        }
+        [data-theme="light"] .kpi-card--displacement { border-color: rgba(59,130,246,0.3); }
+        [data-theme="light"] .kpi-axis-selector { background: rgba(0,0,0,0.05); }
+        [data-theme="light"] .kpi-axis-btn { color: #94a3b8; }
+        [data-theme="light"] .kpi-axis-btn:hover { background: rgba(0,0,0,0.07); color: #0f172a; }
+        [data-theme="light"] .kpi-value-num { color: #0f172a; }
+        [data-theme="light"] .kpi-value-num.kpi-unavailable { color: #94a3b8; }
+        [data-theme="light"] .kpi-freshness { color: #94a3b8; }
 
         /* ========== LIGHT THEME OVERRIDES ========== */
         [data-theme="light"] body {
@@ -1057,6 +1210,164 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.6; }
         }
+
+        /* ========== KPI MEASUREMENT CARDS ========== */
+        .kpi-section {
+            padding: 0 25px 16px;
+        }
+        .kpi-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 10px;
+        }
+        .kpi-cards-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+        }
+        .kpi-card {
+            background: rgba(30, 41, 59, 0.72);
+            backdrop-filter: blur(14px);
+            border-radius: 18px;
+            padding: 20px 24px 16px;
+            border: 1px solid rgba(255,255,255,0.06);
+            box-shadow: 0 6px 28px rgba(0,0,0,0.32);
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+        }
+        .kpi-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+        }
+        .kpi-card--displacement::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+            border-radius: 18px 18px 0 0;
+        }
+        .kpi-card--velocity::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #06b6d4, #22d3ee);
+            border-radius: 18px 18px 0 0;
+        }
+        .kpi-card--acceleration::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+            border-radius: 18px 18px 0 0;
+        }
+        .kpi-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .kpi-card-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .kpi-axis-selector {
+            display: flex;
+            background: rgba(0,0,0,0.25);
+            border-radius: 8px;
+            padding: 2px;
+            gap: 2px;
+        }
+        .kpi-axis-btn {
+            background: none;
+            border: none;
+            color: #64748b;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.18s ease, color 0.18s ease;
+        }
+        .kpi-axis-btn[aria-pressed="true"] {
+            background: rgba(59, 130, 246, 0.25);
+            color: #60a5fa;
+        }
+        .kpi-axis-btn:hover { color: #f1f5f9; }
+        .kpi-values-row {
+            display: flex;
+            gap: 28px;
+            margin-bottom: 14px;
+        }
+        .kpi-value-block {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .kpi-value-label {
+            font-size: 10px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            font-weight: 600;
+        }
+        .kpi-value-num {
+            font-size: 30px;
+            font-weight: 700;
+            line-height: 1;
+            color: #f1f5f9;
+            letter-spacing: -1px;
+            transition: color 0.3s ease;
+        }
+        .kpi-value-num.kpi-unavailable {
+            color: #475569;
+            font-size: 24px;
+        }
+        .kpi-value-unit {
+            font-size: 11px;
+            color: #475569;
+            font-weight: 500;
+        }
+        .kpi-freshness {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: #64748b;
+        }
+        .kpi-freshness-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #10b981;
+            flex-shrink: 0;
+            animation: kpiLivePulse 2s ease-in-out infinite;
+        }
+        .kpi-freshness.kpi-stale .kpi-freshness-dot {
+            background: #f59e0b;
+            animation: none;
+        }
+        .kpi-freshness.kpi-disconnected .kpi-freshness-dot {
+            background: #ef4444;
+            animation: none;
+        }
+        @keyframes kpiLivePulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16,185,129,0.5); }
+            50% { opacity: 0.8; box-shadow: 0 0 0 4px rgba(16,185,129,0); }
+        }
+        @media (max-width: 900px) {
+            .kpi-cards-row { grid-template-columns: 1fr; }
+        }
 </style>
 </head>
 <body>
@@ -1220,20 +1531,7 @@
             </div>
         </div>
         
-        <div class="control-group">
-            <span class="control-label">Metric:</span>
-            <div class="metric-buttons">
-                <button class="metric-btn active" data-metric="acceleration" onclick="selectMetric('acceleration')">
-                    Acceleration
-                </button>
-            </div>
-        </div>
-        <div class="control-group">
-            <span class="control-label">Secondary Axis:</span>
-            <div class="axis-buttons">
-                <button class="axis-btn active" data-axis="X">X</button>
-            </div>
-        </div>
+        <!-- Metric and Secondary Axis controls removed — axis selection moved to per-card KPI controls -->
         
         <!-- EVENT LOGGING & LIBRARY -->
         <div class="control-group event-actions" style="margin-left: auto;">
@@ -1263,12 +1561,104 @@
         </div>
     </div>
 
-    <!-- MAIN GRID -->
+    <!-- KPI MEASUREMENT CARDS -->
+    <section class="kpi-section" aria-label="Machine KPI Measurements">
+        <div class="kpi-section-title">Live Vibration Readings</div>
+        <div class="kpi-cards-row">
+
+            <!-- DISPLACEMENT CARD (primary, largest) -->
+            <div class="kpi-card kpi-card--displacement" id="kpiCardDisplacement">
+                <div class="kpi-card-header">
+                    <span class="kpi-card-title">Displacement</span>
+                    <div class="kpi-axis-selector" role="radiogroup" aria-label="Displacement axis">
+                        <button class="kpi-axis-btn" aria-pressed="true"  data-kpi="displacement" data-axis="Z" onclick="setKpiAxis('displacement','Z',this)">Z</button>
+                        <button class="kpi-axis-btn" aria-pressed="false" data-kpi="displacement" data-axis="X" onclick="setKpiAxis('displacement','X',this)">X</button>
+                        <button class="kpi-axis-btn" aria-pressed="false" data-kpi="displacement" data-axis="Y" onclick="setKpiAxis('displacement','Y',this)">Y</button>
+                    </div>
+                </div>
+                <div class="kpi-values-row">
+                    <div class="kpi-value-block">
+                        <span class="kpi-value-label">Peak</span>
+                        <span class="kpi-value-num" id="kpiDispPeak">--</span>
+                        <span class="kpi-value-unit">mm</span>
+                    </div>
+                    <div class="kpi-value-block">
+                        <span class="kpi-value-label">Peak-to-Peak</span>
+                        <span class="kpi-value-num" id="kpiDispP2P">--</span>
+                        <span class="kpi-value-unit">mm</span>
+                    </div>
+                </div>
+                <div class="kpi-freshness" id="kpiFreshnessDisp">
+                    <span class="kpi-freshness-dot"></span>
+                    <span>Waiting for data...</span>
+                </div>
+            </div>
+
+            <!-- VELOCITY CARD -->
+            <div class="kpi-card kpi-card--velocity" id="kpiCardVelocity">
+                <div class="kpi-card-header">
+                    <span class="kpi-card-title">Velocity</span>
+                    <div class="kpi-axis-selector" role="radiogroup" aria-label="Velocity axis">
+                        <button class="kpi-axis-btn" aria-pressed="true"  data-kpi="velocity" data-axis="Z" onclick="setKpiAxis('velocity','Z',this)">Z</button>
+                        <button class="kpi-axis-btn" aria-pressed="false" data-kpi="velocity" data-axis="X" onclick="setKpiAxis('velocity','X',this)">X</button>
+                        <button class="kpi-axis-btn" aria-pressed="false" data-kpi="velocity" data-axis="Y" onclick="setKpiAxis('velocity','Y',this)">Y</button>
+                    </div>
+                </div>
+                <div class="kpi-values-row">
+                    <div class="kpi-value-block">
+                        <span class="kpi-value-label">Peak</span>
+                        <span class="kpi-value-num" id="kpiVelPeak">--</span>
+                        <span class="kpi-value-unit">m/s</span>
+                    </div>
+                    <div class="kpi-value-block">
+                        <span class="kpi-value-label">Peak-to-Peak</span>
+                        <span class="kpi-value-num" id="kpiVelP2P">--</span>
+                        <span class="kpi-value-unit">m/s</span>
+                    </div>
+                </div>
+                <div class="kpi-freshness" id="kpiFreshnessVel">
+                    <span class="kpi-freshness-dot"></span>
+                    <span>Waiting for data...</span>
+                </div>
+                <!-- Note: velocity values come from raw ESP32 JSON (not stored in CSV/DB) -->
+            </div>
+
+            <!-- ACCELERATION CARD -->
+            <div class="kpi-card kpi-card--acceleration" id="kpiCardAcceleration">
+                <div class="kpi-card-header">
+                    <span class="kpi-card-title">Acceleration</span>
+                    <div class="kpi-axis-selector" role="radiogroup" aria-label="Acceleration axis">
+                        <button class="kpi-axis-btn" aria-pressed="true"  data-kpi="acceleration" data-axis="Z" onclick="setKpiAxis('acceleration','Z',this)">Z</button>
+                        <button class="kpi-axis-btn" aria-pressed="false" data-kpi="acceleration" data-axis="X" onclick="setKpiAxis('acceleration','X',this)">X</button>
+                        <button class="kpi-axis-btn" aria-pressed="false" data-kpi="acceleration" data-axis="Y" onclick="setKpiAxis('acceleration','Y',this)">Y</button>
+                    </div>
+                </div>
+                <div class="kpi-values-row">
+                    <div class="kpi-value-block">
+                        <span class="kpi-value-label">Peak</span>
+                        <span class="kpi-value-num" id="kpiAccPeak">--</span>
+                        <span class="kpi-value-unit">m/s²</span>
+                    </div>
+                    <div class="kpi-value-block">
+                        <span class="kpi-value-label">Peak-to-Peak</span>
+                        <span class="kpi-value-num" id="kpiAccP2P">--</span>
+                        <span class="kpi-value-unit">m/s²</span>
+                    </div>
+                </div>
+                <div class="kpi-freshness" id="kpiFreshnessAcc">
+                    <span class="kpi-freshness-dot"></span>
+                    <span>Waiting for data...</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- MAIN GRID — Trend history charts -->
     <div class="main-grid">
-        <!-- PRIMARY COLUMN (Z-AXIS) -->
+        <!-- ACCELERATION TREND (Z-Axis, with threshold markers) -->
         <div class="graph-column">
             <div class="column-header">
-                <span class="column-title">PRIMARY (Z-Axis)</span>
+                <span class="column-title">Acceleration Trend &mdash; Z-Axis</span>
                 <div style="display:flex;align-items:center;gap:8px;">
                     <span class="trend-badge" id="trendBadgePrimary"></span>
                     <span class="freq-badge" id="freqBadgePrimary">-- Hz</span>
@@ -1278,76 +1668,33 @@
                 <canvas id="primaryChart"></canvas>
             </div>
             <div class="threshold-legend" id="primaryLegend">
-                <div class="legend-item">
-                    <div class="legend-line over"></div>
-                    <span>OVER</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-line max"></div>
-                    <span>Max</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-line avg"></div>
-                    <span>Avg</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-line min"></div>
-                    <span>Min</span>
-                </div>
+                <div class="legend-item"><div class="legend-line over"></div><span>OVER threshold</span></div>
+                <div class="legend-item"><div class="legend-line max"></div><span>Max</span></div>
+                <div class="legend-item"><div class="legend-line avg"></div><span>Avg</span></div>
+                <div class="legend-item"><div class="legend-line min"></div><span>Min</span></div>
             </div>
         </div>
 
-        <!-- SECONDARY COLUMN (X/Y AXIS) -->
+        <!-- DISPLACEMENT TREND (Z-Axis) -->
         <div class="graph-column">
             <div class="column-header">
-                <span class="column-title secondary">SECONDARY (X-Axis)</span>
+                <span class="column-title secondary">Displacement Trend &mdash; Z-Axis</span>
                 <div style="display:flex;align-items:center;gap:8px;">
                     <span class="trend-badge" id="trendBadgeSecondary"></span>
-                    <span class="freq-badge" id="freqBadgeSecondary">-- Hz</span>
+                    <span class="freq-badge" id="freqBadgeSecondary" style="display:none;"></span>
                 </div>
             </div>
             <div class="chart-wrapper">
                 <canvas id="secondaryChart"></canvas>
             </div>
             <div class="threshold-legend">
-                <div class="legend-item">
-                    <div class="legend-line max"></div>
-                    <span>Max</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-line avg"></div>
-                    <span>Avg</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-line min"></div>
-                    <span>Min</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- WAVEFORM ROW -->
-        <div class="waveform-row">
-            <!-- PRIMARY WAVEFORM -->
-            <div class="waveform-box">
-                <div class="waveform-header">
-                    <span class="waveform-title">🌊 Time Domain Reconstruction (Z-Axis)</span>
-                </div>
-                <div class="waveform-chart">
-                    <canvas id="waveformPrimary"></canvas>
-                </div>
-            </div>
-
-            <!-- SECONDARY WAVEFORM -->
-            <div class="waveform-box">
-                <div class="waveform-header">
-                    <span class="waveform-title">🌊 Time Domain Reconstruction (X-Axis)</span>
-                </div>
-                <div class="waveform-chart">
-                    <canvas id="waveformSecondary"></canvas>
-                </div>
+                <div class="legend-item"><div class="legend-line max"></div><span>Peak (mm)</span></div>
+                <div class="legend-item"><div class="legend-line avg"></div><span>Avg (mm)</span></div>
+                <div class="legend-item"><div class="legend-line min"></div><span>P2P (mm)</span></div>
             </div>
         </div>
     </div>
+
 
     <!-- EVENTS MODAL -->
     <div id="eventsModal" class="modal">
@@ -1384,14 +1731,13 @@
             console.error('Socket.IO failed to load. Live updates will be disabled.');
         }
         let currentMetric = 'acceleration';
-        let secondaryAxis = 'X';
-        let waveformWindowPrimary = 10;
-        let waveformWindowSecondary = 10;
+        // KPI axis state (per-card)
+        const kpiAxis = { displacement: 'Z', velocity: 'Z', acceleration: 'Z' };
         let thresholds = null;
         let currentDate = null;  // Selected date (null = live mode)
 
         // Chart instances
-        let primaryChart, secondaryChart, waveformPrimaryChart, waveformSecondaryChart;
+        let primaryChart, secondaryChart;
 
         // ========== HEALTH & TREND GLOBALS ==========
         let sessionAnomalyCount = 0;
@@ -1511,49 +1857,6 @@
             }
         }
 
-
-        // ========== EVENT LOGGING FUNCTIONS ==========
-        function showToast(msg, duration=3000) {
-            let container = document.getElementById('toastContainer');
-            if (!container) {
-                container = document.createElement('div');
-                container.id = 'toastContainer';
-                container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px;';
-                document.body.appendChild(container);
-            }
-            const toast = document.createElement('div');
-            toast.style.cssText = 'background: rgba(15, 23, 42, 0.95); color: #f8fafc; padding: 12px 20px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 25px rgba(0,0,0,0.5); font-weight: 600; backdrop-filter: blur(10px);';
-            toast.textContent = msg;
-            container.appendChild(toast);
-            setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s ease'; setTimeout(() => toast.remove(), 300); }, duration);
-        }
-
-        async function logEvent(faultType) {
-            showToast(`Logging event: ${faultType}...`);
-            try {
-                const res = await fetch('/api/log_event', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fault_type: faultType })
-                });
-                if (res.ok) showToast('✅ Event saved: ' + faultType, 5000);
-                else showToast('❌ Error saving event', 5000);
-            } catch(e) { showToast('❌ Connection error', 5000); }
-        }
-        function openEventsModal() { document.getElementById('eventsModal').style.display = 'block'; fetchEvents(); }
-        function closeEventsModal() { document.getElementById('eventsModal').style.display = 'none'; }
-        async function fetchEvents() {
-            const tbody = document.getElementById('eventsTableBody');
-            tbody.innerHTML = '<tr><td colspan="3">Loading...</td></tr>';
-            try {
-                const res = await fetch('/api/events');
-                const events = await res.json();
-                if (events.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="color:#94a3b8;">No events.</td></tr>'; return; }
-                events.sort((a,b) => b.filename.localeCompare(a.filename));
-                tbody.innerHTML = events.map(e => `<tr><td style="font-weight:600;">${e.fault_type}</td><td style="color:#94a3b8;">${e.filename}</td><td><a href="/api/events/download/${e.path}" class="download-link" target="_blank"><i class="fas fa-download"></i> Download CSV</a></td></tr>`).join('');
-            } catch(e) { tbody.innerHTML = '<tr><td colspan="3" style="color:#ef4444;">Error.</td></tr>'; }
-        }
-        window.onclick = function(e) { if (e.target == document.getElementById('eventsModal')) closeEventsModal(); }
 
         // ========== CHART INITIALIZATION ==========
         function initCharts() {
@@ -1688,41 +1991,8 @@
                                     yMin: 0,
                                     yMax: 0,
                                     borderColor: '#64748b',
-                                    borderWidth: 3,
-                                    label: { 
-                                        content: '0', 
-                                        enabled: true, 
-                                        color: '#64748b',
-                                        position: 'start'
-                                    }
-                                },
-                                max_line: {
-                                    type: 'line',
-                                    yMin: 1.0,
-                                    yMax: 1.0,
-                                    borderColor: darkColors.max,
-                                    borderWidth: 2,
-                                    borderDash: [3, 3],
-                                    label: { 
-                                        content: 'Max', 
-                                        enabled: true, 
-                                        color: darkColors.max,
-                                        position: 'end'
-                                    }
-                                },
-                                min_line: {
-                                    type: 'line',
-                                    yMin: -1.0,
-                                    yMax: -1.0,
-                                    borderColor: darkColors.min,
-                                    borderWidth: 2,
-                                    borderDash: [3, 3],
-                                    label: { 
-                                        content: 'Min', 
-                                        enabled: true, 
-                                        color: darkColors.min,
-                                        position: 'end'
-                                    }
+                                    borderWidth: 1,
+                                    borderDash: [4, 4]
                                 }
                             }
                         }
@@ -1742,90 +2012,26 @@
                             }
                         },
                         y: {
-                            grid: { 
-                                color: darkColors.grid,
-                                lineWidth: function(context) {
-                                    return context.tick.value === 0 ? 0 : 1;
+                            // Auto-scale: Chart.js will fit tightly to data values
+                            min: undefined,
+                            max: undefined,
+                            grid: { color: darkColors.grid },
+                            ticks: {
+                                color: darkColors.text,
+                                font: { size: 10 },
+                                // Show up to 5 decimal places for small displacement values
+                                callback: function(value) {
+                                    if (Math.abs(value) < 0.001) return value.toExponential(2);
+                                    if (Math.abs(value) < 1) return value.toFixed(4);
+                                    return value.toFixed(2);
                                 }
-                            },
-                            ticks: { color: darkColors.text, font: { size: 10 } }
-                        }
-                    }
-                }
-            });
-
-            // Waveform Charts - Same format as main charts but showing RECONSTRUCTED waveform
-            const waveformOptions = {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { 
-                    legend: { display: false },
-                    annotation: {
-                        annotations: {
-                            zero_line: {
-                                type: 'line',
-                                yMin: 0,
-                                yMax: 0,
-                                borderColor: '#64748b',
-                                borderWidth: 3
                             }
                         }
                     }
-                },
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: { tooltipFormat: 'MMM d, yyyy HH:mm:ss' },
-                        grid: { color: darkColors.grid },
-                        ticks: { color: darkColors.text, font: { size: 9 } }
-                    },
-                    y: {
-                        suggestedMin: -0.1,
-                        suggestedMax: 0.1,
-                        grid: { 
-                            color: darkColors.grid,
-                            lineWidth: function(context) {
-                                return context.tick.value === 0 ? 0 : 1;
-                            }
-                        },
-                        ticks: { color: darkColors.text, font: { size: 9 } }
-                    }
                 }
-            };
-
-            waveformPrimaryChart = new Chart(document.getElementById('waveformPrimary'), {
-                type: 'line',
-                data: {
-                    datasets: [{
-                        label: 'Reconstructed Waveform',
-                        data: [],
-                        borderColor: '#3b82f6',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        fill: false,
-                        tension: 0
-                    }]
-                },
-                options: JSON.parse(JSON.stringify(waveformOptions))
-            });
-
-            const waveformSecondaryOptions = JSON.parse(JSON.stringify(waveformOptions));
-            waveformSecondaryChart = new Chart(document.getElementById('waveformSecondary'), {
-                type: 'line',
-                data: {
-                    datasets: [{
-                        label: 'Reconstructed Waveform',
-                        data: [],
-                        borderColor: '#06b6d4',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        fill: false,
-                        tension: 0
-                    }]
-                },
-                options: waveformSecondaryOptions
             });
         }
+
 
         // ========== CHART TIME BOUNDS ==========
         function applyChartTimeBounds(chart) {
@@ -1879,9 +2085,6 @@
             const _overThreshP = thresholds && thresholds.z_axis && thresholds.z_axis[currentMetric]
                 ? thresholds.z_axis[currentMetric].over_positive : null;
             updateTrendBadge('trendBadgePrimary', trendBufferPrimary, _overThreshP);
-            
-            // Update waveform reconstruction
-            updatePrimaryWaveform(data);
         }
 
         function updateSecondaryChart(data) {
@@ -1910,130 +2113,100 @@
                 if (trendBufferSecondary.length > TREND_BUFFER_SIZE) trendBufferSecondary.shift();
             }
             updateTrendBadge('trendBadgeSecondary', trendBufferSecondary, null);
-            
-            // Update waveform reconstruction
-            updateSecondaryWaveform(data);
         }
 
-        function updatePrimaryWaveform(data) {
-            if (!data || !data.max || data.max.length === 0) {
-                console.log('[WAVEFORM] No data available for primary waveform');
-                return;
+        // ========== KPI CARD LOGIC ==========
+        function setKpiAxis(metric, axis, btn) {
+            kpiAxis[metric] = axis;
+            // Update button states within the same card
+            btn.closest('.kpi-axis-selector').querySelectorAll('.kpi-axis-btn')
+               .forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+        }
+
+        let kpiLastTimestamp = null;
+        const KPI_STALE_SECS = 30; // readings older than 30 s are stale
+
+        async function fetchKpi() {
+            try {
+                const res = await fetch('/api/latest_kpi');
+                if (!res.ok) return;
+                const kpi = await res.json();
+                renderKpi(kpi);
+                kpiLastTimestamp = kpi.timestamp || null;
+            } catch (e) { /* silent — freshness dot will go disconnected on next render */ }
+        }
+
+        function renderKpi(kpi) {
+            const now = new Date();
+            // Determine freshness
+            let ageSecs = null;
+            if (kpi.timestamp) {
+                const ts = new Date(kpi.timestamp);
+                ageSecs = (now - ts) / 1000;
             }
-            
-            // Reconstruct waveform for ALL data points (not just latest)
-            const reconstructedWaveform = [];
+            const fresh = ageSecs !== null && ageSecs < KPI_STALE_SECS;
+            const stale = ageSecs !== null && ageSecs >= KPI_STALE_SECS;
+            const noData = ageSecs === null;
 
-            // Use the actual machine frequency from the data; fall back to 0.5 Hz visual
-            const visualFreq = data.frequency && data.frequency > 0 ? data.frequency : 0.5;
-
-            // Anchor phase to the START of the data window so the waveform is stable
-            // and consistent with the main chart's x-axis timestamps
-            const epochOriginMs = new Date(data.datetime_labels[0]).getTime();
-            
-            for (let i = 0; i < data.max.length; i++) {
-                const max_val = data.max[i];
-                const min_val = data.min[i];
-                
-                // Amplitude centered on 0 to represent AC vibration
-                const amplitude = (max_val - min_val) / 2;
-                
-                const timestamp = new Date(data.datetime_labels[i]);
-                
-                // 5 sub-points per summary interval for a smooth curve
-                const numSubPoints = 5;
-                for (let j = 0; j < numSubPoints; j++) {
-                    let nextTimeMs = timestamp.getTime() + 8000; // fallback for last point
-                    if (i < data.max.length - 1) {
-                        nextTimeMs = new Date(data.datetime_labels[i+1]).getTime();
-                    }
-                    const stepMs = (nextTimeMs - timestamp.getTime()) / numSubPoints;
-                    const subTimestamp = new Date(timestamp.getTime() + (j * stepMs));
-
-                    // Phase is relative to the window start (in seconds), NOT raw epoch
-                    // This keeps the waveform shape stable as the chart scrolls
-                    const relativeSeconds = (subTimestamp.getTime() - epochOriginMs) / 1000;
-                    const phase = 2 * Math.PI * visualFreq * relativeSeconds;
-                    const value = amplitude * Math.sin(phase);
-                    
-                    reconstructedWaveform.push({ x: subTimestamp, y: value });
+            function fmt(val, decimals) {
+                if (val === null || val === undefined) return null;
+                return parseFloat(val).toFixed(decimals);
+            }
+            function setVal(elId, val, decimals) {
+                const el = document.getElementById(elId);
+                if (!el) return;
+                const formatted = fmt(val, decimals);
+                if (formatted === null) {
+                    el.textContent = '—';
+                    el.classList.add('kpi-unavailable');
+                } else {
+                    el.textContent = formatted;
+                    el.classList.remove('kpi-unavailable');
                 }
             }
-            
-            console.log(`[WAVEFORM PRIMARY] Generated ${reconstructedWaveform.length} points from ${data.max.length} data points`);
-            
-            waveformPrimaryChart.data.datasets[0].data = reconstructedWaveform;
-
-            // Pin x-axis to exactly the same time window as the data (first → last label)
-            // This ensures the waveform always matches the main chart's visible range
-            const wfStartMs = new Date(data.datetime_labels[0]).getTime();
-            const wfEndMs   = new Date(data.datetime_labels[data.datetime_labels.length - 1]).getTime();
-            waveformPrimaryChart.options.scales.x.min = wfStartMs;
-            waveformPrimaryChart.options.scales.x.max = wfEndMs;
-
-            waveformPrimaryChart.update();
-        }
-
-        function updateSecondaryWaveform(data) {
-            if (!data || !data.max || data.max.length === 0) {
-                console.log('[WAVEFORM] No data available for secondary waveform');
-                return;
-            }
-            
-            // Reconstruct waveform for ALL data points
-            const reconstructedWaveform = [];
-
-            const visualFreq = data.frequency && data.frequency > 0 ? data.frequency : 0.5;
-            const epochOriginMs = new Date(data.datetime_labels[0]).getTime();
-            
-            for (let i = 0; i < data.max.length; i++) {
-                const max_val = data.max[i];
-                const min_val = data.min[i];
-
-                const amplitude = (max_val - min_val) / 2;
-                
-                const timestamp = new Date(data.datetime_labels[i]);
-                
-                const numSubPoints = 5;
-                for (let j = 0; j < numSubPoints; j++) {
-                    let nextTimeMs = timestamp.getTime() + 8000;
-                    if (i < data.max.length - 1) {
-                        nextTimeMs = new Date(data.datetime_labels[i+1]).getTime();
-                    }
-                    const stepMs = (nextTimeMs - timestamp.getTime()) / numSubPoints;
-                    const subTimestamp = new Date(timestamp.getTime() + (j * stepMs));
-
-                    // Phase relative to window start — not raw epoch — for a stable waveform
-                    const relativeSeconds = (subTimestamp.getTime() - epochOriginMs) / 1000;
-                    const phase = 2 * Math.PI * visualFreq * relativeSeconds;
-                    const value = amplitude * Math.sin(phase);
-                    
-                    reconstructedWaveform.push({ x: subTimestamp, y: value });
+            function setFreshness(elId, ageSecs, noData) {
+                const el = document.getElementById(elId);
+                if (!el) return;
+                const dot  = el.querySelector('.kpi-freshness-dot');
+                const txt  = el.querySelector('span:last-child');
+                el.className = 'kpi-freshness';
+                if (noData) {
+                    el.classList.add('kpi-disconnected');
+                    txt.textContent = 'No data received';
+                } else if (ageSecs >= KPI_STALE_SECS) {
+                    el.classList.add('kpi-stale');
+                    const mins = Math.floor(ageSecs / 60);
+                    txt.textContent = mins > 0 ? `Last seen ${mins}m ago` : `${Math.round(ageSecs)}s ago (stale)`;
+                } else {
+                    const secs = Math.round(ageSecs);
+                    txt.textContent = secs < 5 ? 'Live' : `Updated ${secs}s ago`;
                 }
             }
-            
-            console.log(`[WAVEFORM SECONDARY] Generated ${reconstructedWaveform.length} points from ${data.max.length} data points`);
-            
-            waveformSecondaryChart.data.datasets[0].data = reconstructedWaveform;
 
-            // Pin x-axis to exactly the same time window as the data (first → last label)
-            const wfStartMs = new Date(data.datetime_labels[0]).getTime();
-            const wfEndMs   = new Date(data.datetime_labels[data.datetime_labels.length - 1]).getTime();
-            waveformSecondaryChart.options.scales.x.min = wfStartMs;
-            waveformSecondaryChart.options.scales.x.max = wfEndMs;
+            // Displacement card
+            const dAxis = kpiAxis.displacement;
+            const d = kpi.displacement && kpi.displacement[dAxis] ? kpi.displacement[dAxis] : {};
+            setVal('kpiDispPeak', d.peak, 4);
+            setVal('kpiDispP2P',  d.p2p,  4);
+            setFreshness('kpiFreshnessDisp', ageSecs, noData);
 
-            waveformSecondaryChart.update();
+            // Velocity card
+            const vAxis = kpiAxis.velocity;
+            const v = kpi.velocity && kpi.velocity[vAxis] ? kpi.velocity[vAxis] : {};
+            setVal('kpiVelPeak', v.peak, 4);
+            setVal('kpiVelP2P',  v.p2p,  4);
+            setFreshness('kpiFreshnessVel', ageSecs, noData);
+
+            // Acceleration card
+            const aAxis = kpiAxis.acceleration;
+            const a = kpi.acceleration && kpi.acceleration[aAxis] ? kpi.acceleration[aAxis] : {};
+            setVal('kpiAccPeak', a.peak, 3);
+            setVal('kpiAccP2P',  a.p2p,  3);
+            setFreshness('kpiFreshnessAcc', ageSecs, noData);
         }
 
-        function updateWaveform(chart, data) {
-            if (!data || !data.time || !data.waveform) return;
 
-            const points = data.time.map((t, i) => ({ x: t, y: data.waveform[i] }));
-            chart.data.labels = data.time;
-            chart.data.datasets[0].data = points;
-            chart.update('none');
-        }
-
+        // ========== THRESHOLD LINES ==========
         function updateThresholdLines(metric) {
             if (!thresholds) return;
             // Correct path: thresholds.z_axis[metric], NOT thresholds[metric]
@@ -2050,115 +2223,46 @@
                 primaryChart.options.plugins.annotation.annotations.over_neg.yMax = thresholdLines.over_negative;
             }
 
-            // Update Y-axis range and labels based on metric
-            if (metric === 'velocity') {
-                primaryChart.options.scales.y.min = undefined;
-                primaryChart.options.scales.y.max = undefined;
-                secondaryChart.options.scales.y.min = undefined;
-                secondaryChart.options.scales.y.max = undefined;
-                
-                // Update secondary max/min lines
-                secondaryChart.options.plugins.annotation.annotations.max_line.yMin = 0.08;
-                secondaryChart.options.plugins.annotation.annotations.max_line.yMax = 0.08;
-                secondaryChart.options.plugins.annotation.annotations.min_line.yMin = -0.08;
-                secondaryChart.options.plugins.annotation.annotations.min_line.yMax = -0.08;
-                
-                // Update waveforms (auto-scale to make waveforms visible)
-                waveformPrimaryChart.options.scales.y.min = undefined;
-                waveformPrimaryChart.options.scales.y.max = undefined;
-                waveformPrimaryChart.options.scales.y.suggestedMin = -0.01;
-                waveformPrimaryChart.options.scales.y.suggestedMax = 0.01;
-                
-                waveformSecondaryChart.options.scales.y.min = undefined;
-                waveformSecondaryChart.options.scales.y.max = undefined;
-                waveformSecondaryChart.options.scales.y.suggestedMin = -0.01;
-                waveformSecondaryChart.options.scales.y.suggestedMax = 0.01;
-            } else if (metric === 'displacement') {
-                primaryChart.options.scales.y.min = undefined;
-                primaryChart.options.scales.y.max = undefined;
-                secondaryChart.options.scales.y.min = undefined;
-                secondaryChart.options.scales.y.max = undefined;
-                
-                // Update secondary max/min lines
-                secondaryChart.options.plugins.annotation.annotations.max_line.yMin = 0.0008;
-                secondaryChart.options.plugins.annotation.annotations.max_line.yMax = 0.0008;
-                secondaryChart.options.plugins.annotation.annotations.min_line.yMin = -0.0008;
-                secondaryChart.options.plugins.annotation.annotations.min_line.yMax = -0.0008;
-                
-                // Update waveforms (auto-scale to make waveforms visible)
-                waveformPrimaryChart.options.scales.y.min = undefined;
-                waveformPrimaryChart.options.scales.y.max = undefined;
-                waveformPrimaryChart.options.scales.y.suggestedMin = -0.0001;
-                waveformPrimaryChart.options.scales.y.suggestedMax = 0.0001;
-                
-                waveformSecondaryChart.options.scales.y.min = undefined;
-                waveformSecondaryChart.options.scales.y.max = undefined;
-                waveformSecondaryChart.options.scales.y.suggestedMin = -0.0001;
-                waveformSecondaryChart.options.scales.y.suggestedMax = 0.0001;
-            } else {
-                primaryChart.options.scales.y.min = undefined;
-                primaryChart.options.scales.y.max = undefined;
-                secondaryChart.options.scales.y.min = undefined;
-                secondaryChart.options.scales.y.max = undefined;
-                
-                // Update secondary max/min lines
-                secondaryChart.options.plugins.annotation.annotations.max_line.yMin = 1.0;
-                secondaryChart.options.plugins.annotation.annotations.max_line.yMax = 1.0;
-                secondaryChart.options.plugins.annotation.annotations.min_line.yMin = -1.0;
-                secondaryChart.options.plugins.annotation.annotations.min_line.yMax = -1.0;
-                
-                // Update waveforms (auto-scale to make waveforms visible)
-                waveformPrimaryChart.options.scales.y.min = undefined;
-                waveformPrimaryChart.options.scales.y.max = undefined;
-                waveformPrimaryChart.options.scales.y.suggestedMin = -0.1;
-                waveformPrimaryChart.options.scales.y.suggestedMax = 0.1;
-                
-                waveformSecondaryChart.options.scales.y.min = undefined;
-                waveformSecondaryChart.options.scales.y.max = undefined;
-                waveformSecondaryChart.options.scales.y.suggestedMin = -0.1;
-                waveformSecondaryChart.options.scales.y.suggestedMax = 0.1;
-            }
-
             primaryChart.update('none');
             secondaryChart.update('none');
-            waveformPrimaryChart.update('none');
-            waveformSecondaryChart.update('none');
         }
 
         // ========== USER INTERACTIONS ==========
         function selectMetric(metric) {
             currentMetric = metric;
-
-            document.querySelectorAll('.metric-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelector(`[data-metric="${metric}"]`).classList.add('active');
-
             updateThresholdLines(metric);
             requestGraphData();
         }
 
         // ========== DATA REQUESTS ==========
         function requestGraphData() {
-            const reqDataPrimary = {
-                axis: 'Z',
-                metric: currentMetric
-            };
-            const reqDataSecondary = {
-                axis: secondaryAxis,
-                metric: currentMetric
-            };
-            
+            // Primary chart (Acceleration Trend): via Socket.IO
+            const reqDataPrimary = { axis: 'Z', metric: currentMetric };
             if (filterStart && filterEnd) {
                 reqDataPrimary.start_time = filterStart;
-                reqDataPrimary.end_time = filterEnd;
-                reqDataSecondary.start_time = filterStart;
-                reqDataSecondary.end_time = filterEnd;
+                reqDataPrimary.end_time   = filterEnd;
             } else {
                 reqDataPrimary.minutes = filterMinutes;
-                reqDataSecondary.minutes = filterMinutes;
             }
-
             socket.emit('request_axis_data', reqDataPrimary);
-            socket.emit('request_axis_data', reqDataSecondary);
+
+            // Secondary chart (Displacement Trend): via REST to avoid axis:'Z' collision
+            fetchDisplacementChart();
+        }
+
+        async function fetchDisplacementChart() {
+            try {
+                let url = '/api/axis_data?axis=Z&metric=displacement';
+                if (filterStart && filterEnd) {
+                    url += `&start_time=${filterStart}&end_time=${filterEnd}`;
+                } else {
+                    url += `&minutes=${filterMinutes}`;
+                }
+                const res = await fetch(url);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && !data.error) updateSecondaryChart(data);
+            } catch (e) { console.warn('[DISP CHART]', e); }
         }
 
         // ========== DATE FUNCTIONS ==========
@@ -2311,36 +2415,13 @@
         });
 
         socket.on('axis_data', (data) => {
+            // Primary chart only — secondary (displacement) uses REST via fetchDisplacementChart()
             if (data.error) {
-                console.error('Data error:', data.error);
-                if (typeof showToast === 'function') {
-                    showToast('No Data Available for this period');
-                }
-                
-                const emptyData = {
-                    datetime_labels: [], max: [], min: [], avg: [],
-                    over_positive: [], under_positive: [],
-                    over_negative: [], under_negative: []
-                };
-                
-                if (data.axis === 'Z' || data.axis === undefined) {
-                    updatePrimaryChart(emptyData);
-                    updatePrimaryWaveform(emptyData);
-                }
-                if (data.axis === secondaryAxis || data.axis === undefined) {
-                    updateSecondaryChart(emptyData);
-                    updateSecondaryWaveform(emptyData);
-                }
+                const emptyData = { datetime_labels: [], max: [], min: [], avg: [], over_positive: [], under_positive: [], over_negative: [], under_negative: [] };
+                updatePrimaryChart(emptyData);
                 return;
             }
-
-            if (data.axis === 'Z') {
-                updatePrimaryChart(data);
-                updatePrimaryWaveform(data);
-            } else if (data.axis === secondaryAxis) {
-                updateSecondaryChart(data);
-                updateSecondaryWaveform(data);
-            }
+            updatePrimaryChart(data);
         });
 
         socket.on('data_update', () => {
@@ -2377,9 +2458,21 @@
             initCharts();
             initTheme();
             updateThresholdLines(currentMetric);
-            
+            loadAvailableDates();
+
+            // Primary chart (acceleration) — socket-driven, polled every 5s
+            requestGraphData();
             setInterval(requestGraphData, 5000);
+
+            // Secondary chart (displacement) — REST-driven, polled every 5s
+            fetchDisplacementChart();
+            setInterval(fetchDisplacementChart, 5000);
+
             setInterval(fetchStatus, 2000);
+
+            // KPI cards polling (every 3 s)
+            fetchKpi();
+            setInterval(fetchKpi, 3000);
         });
 
         // ========== AI CONFIDENCE GAUGE ==========
@@ -2417,17 +2510,24 @@
         // ========== HEALTH SCORE KPI ==========
         function updateHealthScore() {
             // AI Safety: 100 - avg(recent confidence readings)
-            let aiScore = 100;
-            if (healthAiBuffer.length > 0) {
+            // If the anomaly model is not active (no ai_confidence from the server),
+            // aiScore stays null and the score is based on alerts only.
+            const aiAvailable = healthAiBuffer.length > 0;
+            let aiScore = null;
+            if (aiAvailable) {
                 const avgConf = healthAiBuffer.reduce((a,b) => a + b, 0) / healthAiBuffer.length;
                 aiScore = Math.max(0, 100 - avgConf);
             }
             // Alert Penalty: -10 per alert, min 0
             const alertScore = Math.max(0, 100 - healthAlertCount * 10);
-            // Threshold safety — proxy from AI score
-            const threshScore = Math.min(100, Math.round(aiScore * 0.8 + 20));
+            // Threshold safety — proxy from AI score (alert score when AI is off)
+            const threshScore = aiAvailable
+                ? Math.min(100, Math.round(aiScore * 0.8 + 20))
+                : alertScore;
             // Composite weighted average
-            const composite = Math.round(aiScore * 0.55 + alertScore * 0.3 + threshScore * 0.15);
+            const composite = aiAvailable
+                ? Math.round(aiScore * 0.55 + alertScore * 0.3 + threshScore * 0.15)
+                : Math.round(alertScore * 0.7 + threshScore * 0.3);
             const score = Math.min(100, Math.max(0, composite));
 
             const circle     = document.getElementById('healthCircle');
@@ -2452,10 +2552,14 @@
                 statusText.textContent = 'Critical';
                 statusText.className   = 'health-status-text health-status-bad';
             }
-            const aiColor     = aiScore    >= 80 ? '#10b981' : aiScore    >= 50 ? '#f59e0b' : '#ef4444';
+            if (aiAvailable) {
+                const aiColor = aiScore >= 80 ? '#10b981' : aiScore >= 50 ? '#f59e0b' : '#ef4444';
+                _setKpi('kpiAiBar', 'kpiAiVal', Math.round(aiScore), aiColor);
+            } else {
+                _setKpi('kpiAiBar', 'kpiAiVal', 0, '#475569', 'Not active');
+            }
             const alertColor  = alertScore >= 80 ? '#10b981' : alertScore >= 50 ? '#f59e0b' : '#ef4444';
             const threshColor = threshScore>= 80 ? '#10b981' : threshScore>= 50 ? '#f59e0b' : '#ef4444';
-            _setKpi('kpiAiBar',    'kpiAiVal',    Math.round(aiScore),    aiColor);
             _setKpi('kpiAlertBar', 'kpiAlertVal', alertScore,             alertColor, healthAlertCount + ' alerts');
             _setKpi('kpiThreshBar','kpiThreshVal',threshScore,            threshColor);
         }

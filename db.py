@@ -1,8 +1,19 @@
 """
 db.py — Shared Aiven PostgreSQL module
-Used by both cloud_server.py (Render) and server.py (local)
+Used by server.py (RPi / local receiver).
 All data is stored in the `vibration_data` table.
 Set DATABASE_URL in environment or .env before importing.
+
+Schema (33 data columns, same order as CSV_HEADERS in server.py):
+    date, time_sec,
+    max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,     (Z accel)
+    max_ax, min_ax, mean_ax,                                       (X accel)
+    max_ay, min_ay, mean_ay,                                       (Y accel)
+    disp_peak/p2p/rms _z/_x/_y _mm,                                (displacement)
+    fft1_freq, fft1_mag ... fft5_freq, fft5_mag                    (Z FFT peaks)
+
+Tables created with the older 21-column layout are upgraded automatically by
+init_db() (ALTER TABLE ... ADD COLUMN IF NOT EXISTS) — no data is lost.
 """
 
 import os
@@ -14,11 +25,37 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 _pool = None
 
+# ================= SCHEMA =================
+# Order MUST match CSV_HEADERS in server.py (fetch_rows_since() rows are written
+# straight into the local CSV files).
+TEXT_COLUMNS = ['date']
+KEY_COLUMN = 'time_sec'
+FLOAT_COLUMNS = [
+    'max_az', 'min_az', 'mean_az', 'std_az', 'skewness_az', 'kurtosis_az',
+    'max_ax', 'min_ax', 'mean_ax',
+    'max_ay', 'min_ay', 'mean_ay',
+    'disp_peak_z_mm', 'disp_p2p_z_mm', 'disp_rms_z_mm',
+    'disp_peak_x_mm', 'disp_p2p_x_mm', 'disp_rms_x_mm',
+    'disp_peak_y_mm', 'disp_p2p_y_mm', 'disp_rms_y_mm',
+    'fft1_freq', 'fft1_mag', 'fft2_freq', 'fft2_mag',
+    'fft3_freq', 'fft3_mag', 'fft4_freq', 'fft4_mag',
+    'fft5_freq', 'fft5_mag',
+]
+DB_COLUMNS = TEXT_COLUMNS + [KEY_COLUMN] + FLOAT_COLUMNS   # 33 columns
+
+_COL_LIST    = ', '.join(DB_COLUMNS)
+_PARAM_LIST  = ', '.join(f'%({c})s' for c in DB_COLUMNS)
+_INSERT_SQL  = f"""
+    INSERT INTO vibration_data ({_COL_LIST})
+    VALUES ({_PARAM_LIST})
+    ON CONFLICT (time_sec) DO NOTHING
+"""
+
 
 def _make_dsn() -> str:
     """
     Return DATABASE_URL for Aiven DB.
-    (Removed aggressive keepalives used for Neon serverless).
+    (Removed aggressive keepalives used for Aiven serverless).
     """
     return DATABASE_URL
 
@@ -58,7 +95,7 @@ def _get_conn():
             except Exception:
                 pass
             _pool = None
-            
+
     # Fallback to returning a fresh connection on the last try
     return _get_pool().getconn()
 
@@ -69,41 +106,32 @@ def _put_conn(conn):
 
 # ================= INIT =================
 def init_db():
-    """Create the vibration_data table if it does not exist."""
+    """
+    Create the vibration_data table if it does not exist, and add any columns
+    that are missing from an older (21-column) table.
+    """
+    float_defs = ',\n                    '.join(f'{c} DOUBLE PRECISION' for c in FLOAT_COLUMNS)
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS vibration_data (
                     id           SERIAL PRIMARY KEY,
                     date         TEXT,
                     time_sec     DOUBLE PRECISION UNIQUE NOT NULL,
-                    max_az       DOUBLE PRECISION,
-                    min_az       DOUBLE PRECISION,
-                    mean_az      DOUBLE PRECISION,
-                    std_az       DOUBLE PRECISION,
-                    skewness_az  DOUBLE PRECISION,
-                    kurtosis_az  DOUBLE PRECISION,
-                    max_ax       DOUBLE PRECISION,
-                    min_ax       DOUBLE PRECISION,
-                    mean_ax      DOUBLE PRECISION,
-                    fft1_freq    DOUBLE PRECISION,
-                    fft1_mag     DOUBLE PRECISION,
-                    fft2_freq    DOUBLE PRECISION,
-                    fft2_mag     DOUBLE PRECISION,
-                    fft3_freq    DOUBLE PRECISION,
-                    fft3_mag     DOUBLE PRECISION,
-                    fft4_freq    DOUBLE PRECISION,
-                    fft4_mag     DOUBLE PRECISION,
-                    fft5_freq    DOUBLE PRECISION,
-                    fft5_mag     DOUBLE PRECISION,
+                    {float_defs},
                     created_at   TIMESTAMP DEFAULT NOW()
                 );
                 CREATE INDEX IF NOT EXISTS idx_time_sec ON vibration_data(time_sec);
                 CREATE INDEX IF NOT EXISTS idx_date     ON vibration_data(date);
             """)
+            # Migration: upgrade tables created with the old 21-column layout
+            for col in FLOAT_COLUMNS:
+                cur.execute(
+                    f"ALTER TABLE vibration_data ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION"
+                )
             conn.commit()
-        print("[DB] vibration_data table ready.")
+        print(f"[DB] vibration_data table ready ({len(DB_COLUMNS)} data columns).")
     except Exception as e:
         conn.rollback()
         print(f"[DB ERROR] init_db: {e}")
@@ -113,41 +141,23 @@ def init_db():
 
 
 # ================= WRITE =================
+def _complete_row(row_dict: dict) -> dict:
+    """Return a dict with every DB column present (missing -> None/NULL)."""
+    return {c: row_dict.get(c) for c in DB_COLUMNS}
+
+
 def insert_row(row_dict: dict):
     """
     Insert one parsed row into Aiven.
     Silently skips duplicate time_sec values (ON CONFLICT DO NOTHING).
 
-    Expected keys:
-        date, time_sec,
-        max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,
-        max_ax, min_ax, mean_ax,
-        fft1_freq, fft1_mag, fft2_freq, fft2_mag,
-        fft3_freq, fft3_mag, fft4_freq, fft4_mag, fft5_freq, fft5_mag
+    Expected keys: see DB_COLUMNS (date, time_sec, max_az ... fft5_mag).
+    Missing keys are stored as NULL.
     """
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO vibration_data
-                    (date, time_sec,
-                     max_az,  min_az,  mean_az,  std_az,  skewness_az,  kurtosis_az,
-                     max_ax,  min_ax,  mean_ax,
-                     fft1_freq, fft1_mag, fft2_freq, fft2_mag,
-                     fft3_freq, fft3_mag, fft4_freq, fft4_mag,
-                     fft5_freq, fft5_mag)
-                VALUES
-                    (%(date)s,     %(time_sec)s,
-                     %(max_az)s,   %(min_az)s,   %(mean_az)s,  %(std_az)s,
-                     %(skewness_az)s, %(kurtosis_az)s,
-                     %(max_ax)s,   %(min_ax)s,   %(mean_ax)s,
-                     %(fft1_freq)s, %(fft1_mag)s,
-                     %(fft2_freq)s, %(fft2_mag)s,
-                     %(fft3_freq)s, %(fft3_mag)s,
-                     %(fft4_freq)s, %(fft4_mag)s,
-                     %(fft5_freq)s, %(fft5_mag)s)
-                ON CONFLICT (time_sec) DO NOTHING
-            """, row_dict)
+            cur.execute(_INSERT_SQL, _complete_row(row_dict))
             conn.commit()
     except Exception as e:
         conn.rollback()
@@ -165,26 +175,7 @@ def insert_many_rows(rows: list):
     try:
         with conn.cursor() as cur:
             for row_dict in rows:
-                cur.execute("""
-                    INSERT INTO vibration_data
-                        (date, time_sec,
-                         max_az,  min_az,  mean_az,  std_az,  skewness_az,  kurtosis_az,
-                         max_ax,  min_ax,  mean_ax,
-                         fft1_freq, fft1_mag, fft2_freq, fft2_mag,
-                         fft3_freq, fft3_mag, fft4_freq, fft4_mag,
-                         fft5_freq, fft5_mag)
-                    VALUES
-                        (%(date)s,     %(time_sec)s,
-                         %(max_az)s,   %(min_az)s,   %(mean_az)s,  %(std_az)s,
-                         %(skewness_az)s, %(kurtosis_az)s,
-                         %(max_ax)s,   %(min_ax)s,   %(mean_ax)s,
-                         %(fft1_freq)s, %(fft1_mag)s,
-                         %(fft2_freq)s, %(fft2_mag)s,
-                         %(fft3_freq)s, %(fft3_mag)s,
-                         %(fft4_freq)s, %(fft4_mag)s,
-                         %(fft5_freq)s, %(fft5_mag)s)
-                    ON CONFLICT (time_sec) DO NOTHING
-                """, row_dict)
+                cur.execute(_INSERT_SQL, _complete_row(row_dict))
         conn.commit()
         print(f"[DB] Bulk inserted {len(rows)} rows.")
     except Exception as e:
@@ -215,18 +206,13 @@ def fetch_rows_since(epoch_time: float) -> list:
     """
     Fetch all rows with time_sec > epoch_time.
     Used by local server on startup to sync missed data from Aiven.
-    Returns list of tuples in CSV column order.
+    Returns list of tuples in CSV column order (see DB_COLUMNS).
     """
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT date, time_sec,
-                       max_az,  min_az,  mean_az,  std_az,  skewness_az,  kurtosis_az,
-                       max_ax,  min_ax,  mean_ax,
-                       fft1_freq, fft1_mag, fft2_freq, fft2_mag,
-                       fft3_freq, fft3_mag, fft4_freq, fft4_mag,
-                       fft5_freq, fft5_mag
+            cur.execute(f"""
+                SELECT {_COL_LIST}
                 FROM vibration_data
                 WHERE time_sec > %s
                 ORDER BY time_sec ASC
@@ -242,45 +228,30 @@ def fetch_rows_since(epoch_time: float) -> list:
 def fetch_rows_for_chart(axis='Z', start_time=None, end_time=None, last_n_minutes=None) -> list:
     """
     Fetch rows for chart rendering.
-    Returns list of tuples:
+    Returns list of tuples in DB_COLUMNS order:
       (date, time_sec, max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,
-       max_ax, min_ax, mean_ax, fft1_freq, fft1_mag, ...)
+       max_ax, min_ax, mean_ax, max_ay, min_ay, mean_ay, disp_*..., fft1_freq, ...)
     """
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
             if start_time and end_time:
-                cur.execute("""
-                    SELECT date, time_sec,
-                           max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,
-                           max_ax, min_ax, mean_ax,
-                           fft1_freq, fft1_mag, fft2_freq, fft2_mag,
-                           fft3_freq, fft3_mag, fft4_freq, fft4_mag,
-                           fft5_freq, fft5_mag
+                cur.execute(f"""
+                    SELECT {_COL_LIST}
                     FROM vibration_data
                     WHERE time_sec >= %s AND time_sec <= %s
                     ORDER BY time_sec ASC
                 """, (float(start_time), float(end_time)))
             elif last_n_minutes is not None:
-                cur.execute("""
-                    SELECT date, time_sec,
-                           max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,
-                           max_ax, min_ax, mean_ax,
-                           fft1_freq, fft1_mag, fft2_freq, fft2_mag,
-                           fft3_freq, fft3_mag, fft4_freq, fft4_mag,
-                           fft5_freq, fft5_mag
+                cur.execute(f"""
+                    SELECT {_COL_LIST}
                     FROM vibration_data
                     WHERE time_sec >= EXTRACT(EPOCH FROM NOW()) - %s
                     ORDER BY time_sec ASC
                 """, (float(last_n_minutes) * 60,))
             else:
-                cur.execute("""
-                    SELECT date, time_sec,
-                           max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,
-                           max_ax, min_ax, mean_ax,
-                           fft1_freq, fft1_mag, fft2_freq, fft2_mag,
-                           fft3_freq, fft3_mag, fft4_freq, fft4_mag,
-                           fft5_freq, fft5_mag
+                cur.execute(f"""
+                    SELECT {_COL_LIST}
                     FROM vibration_data
                     ORDER BY time_sec DESC LIMIT 600
                 """)
@@ -338,7 +309,7 @@ def delete_rows_before_epoch(epoch_time: float) -> int:
 
 
 def get_row_count() -> int:
-    """Fast COUNT(*) — used by cloud server overflow guard."""
+    """Fast COUNT(*) — used by overflow guard."""
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
@@ -355,7 +326,7 @@ def get_row_count() -> int:
 def delete_oldest_rows(n: int) -> int:
     """
     Delete the n oldest rows by time_sec.
-    Called by cloud server overflow guard when row count exceeds MAX_AIVEN_ROWS.
+    Used by an overflow guard when row count exceeds a maximum.
     Returns number of rows deleted.
     """
     conn = _get_conn()
@@ -389,21 +360,16 @@ def parsed_to_row_dict(parsed: dict, date_str: str, epoch_time: float) -> dict:
     def fv(i, j):
         return peaks[i][j] if i < len(peaks) else None
 
-    return {
-        'date':        date_str,
-        'time_sec':    epoch_time,
-        'max_az':      parsed.get('max_az'),
-        'min_az':      parsed.get('min_az'),
-        'mean_az':     parsed.get('mean_az'),
-        'std_az':      parsed.get('std_az'),
-        'skewness_az': parsed.get('skewness_az'),
-        'kurtosis_az': parsed.get('kurtosis_az'),
-        'max_ax':      parsed.get('max_ax'),
-        'min_ax':      parsed.get('min_ax'),
-        'mean_ax':     parsed.get('mean_ax'),
-        'fft1_freq': fv(0, 0), 'fft1_mag': fv(0, 1),
-        'fft2_freq': fv(1, 0), 'fft2_mag': fv(1, 1),
-        'fft3_freq': fv(2, 0), 'fft3_mag': fv(2, 1),
-        'fft4_freq': fv(3, 0), 'fft4_mag': fv(3, 1),
-        'fft5_freq': fv(4, 0), 'fft5_mag': fv(4, 1),
-    }
+    row = {'date': date_str, 'time_sec': epoch_time}
+
+    # Scalar stats (max/min/mean Az/Ax/Ay, std/skew/kurt, displacement metrics)
+    for col in FLOAT_COLUMNS:
+        if not col.startswith('fft'):
+            row[col] = parsed.get(col)
+
+    # FFT peaks (up to 5)
+    for n in range(5):
+        row[f'fft{n+1}_freq'] = fv(n, 0)
+        row[f'fft{n+1}_mag']  = fv(n, 1)
+
+    return row

@@ -1,3 +1,0 @@
-# 
-
-{"alert":null,"alert_time":null,"frequency":0,"magnitude":0,"status":"Waiting for data...","timestamp":null}

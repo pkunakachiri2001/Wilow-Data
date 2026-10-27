@@ -16,12 +16,12 @@ master_data.csv
 uploads/
 data_by_date/
 downloaded_csvs/
+events/
 server.log
 
 # OS
 .DS_Store
 Thumbs.db
 
-# ngrok
-ngrok.exe
+# Windows helper scripts
 *.bat
