@@ -18,8 +18,9 @@ import os
 import io
 import copy
 import math
+import time
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from threading import Lock
 
 import db  # shared Aiven module
@@ -587,7 +588,7 @@ def upload():
                 print(f"[OK] Max_Az={max_az:.4f}")
 
         top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
-        ts_iso = datetime.fromtimestamp(epoch_t).isoformat()
+        ts_iso = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         with kpi_lock:
             _update_latest_kpi(None, parsed, ts_iso)
 
@@ -723,7 +724,7 @@ def receive_esp32_data():
                 print(f"[OK] Max_Az={max_az:.4f}")
 
         top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
-        ts_iso = datetime.fromtimestamp(epoch_t).isoformat()
+        ts_iso = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         with kpi_lock:
             _update_latest_kpi(data, parsed, ts_iso)
 
@@ -795,8 +796,66 @@ def api_axis_data():
     return jsonify(data)
 
 
+_last_db_sync_time = 0.0
+
+def _sync_latest_from_db(force=False):
+    """
+    Fetch newest row from Aiven DB and refresh both latest_kpi and latest_status.
+    Throttled to run at most once every 1.5 seconds unless force=True.
+    """
+    global _last_db_sync_time, latest_kpi, latest_status
+    now_mono = time.time()
+    if not force and (now_mono - _last_db_sync_time < 1.5):
+        return
+
+    _last_db_sync_time = now_mono
+    try:
+        row = db.get_latest_row_dict()
+        if not row or not row.get('time_sec'):
+            return
+
+        epoch_t = float(row['time_sec'])
+        ts_utc = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        ts_display = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+        with kpi_lock:
+            _update_latest_kpi(None, row, ts_utc)
+
+        max_az = row.get('max_az')
+        top_freq = row.get('fft1_freq') or 0.0
+
+        alert_status = None
+        if max_az is not None and 'z_axis' in THRESHOLDS:
+            violation = check_threshold_violation(float(max_az), THRESHOLDS['z_axis']['acceleration'])
+            if violation:
+                alert_status = violation
+
+        ai_confidence, ai_status = evaluate_ai_anomaly(row)
+
+        with status_lock:
+            latest_status['timestamp'] = ts_display
+            latest_status['magnitude'] = float(max_az) if max_az is not None else 0.0
+            latest_status['frequency'] = float(top_freq) if top_freq is not None else 0.0
+            latest_status['ai_confidence'] = ai_confidence
+            latest_status['ai_status'] = ai_status
+
+            if alert_status or (ai_status == 'Anomaly'):
+                cause = alert_status if alert_status else 'AI Model'
+                latest_status['status']     = f'{cause} Threshold'
+                latest_status['alert']      = True
+                latest_status['alert_type'] = f'Z-Axis {cause} Threshold'
+                latest_status['alert_time'] = ts_display
+            else:
+                latest_status['status']     = 'Normal'
+                latest_status['alert']      = False
+                latest_status['alert_type'] = None
+    except Exception as e:
+        print(f"[CLOUD SYNC WARN] Could not sync latest from DB: {e}")
+
+
 @app.route("/api/latest_status")
 def api_latest_status():
+    _sync_latest_from_db()
     with status_lock:
         return jsonify(latest_status)
 
@@ -808,23 +867,8 @@ def favicon():
 
 @app.route("/api/latest_kpi")
 def api_latest_kpi():
-    """
-    Return the most recent KPI snapshot:
-    acceleration, velocity, displacement per axis (peak and peak-to-peak),
-    plus the timestamp of the last reading.
-    If latest_kpi is empty (e.g. freshly deployed on Render), populate from Aiven DB.
-    """
-    global latest_kpi
+    _sync_latest_from_db()
     with kpi_lock:
-        if latest_kpi['timestamp'] is None:
-            try:
-                row = db.get_latest_row_dict()
-                if row and row.get('time_sec'):
-                    ts = row['time_sec']
-                    ts_iso = datetime.fromtimestamp(ts).isoformat()
-                    _update_latest_kpi(None, row, ts_iso)
-            except Exception as e:
-                print(f"[CLOUD KPI WARN] Could not hydrate from DB: {e}")
         return jsonify(copy.deepcopy(latest_kpi))
 
 

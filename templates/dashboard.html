@@ -2141,8 +2141,12 @@
             // Determine freshness
             let ageSecs = null;
             if (kpi.timestamp) {
-                const ts = new Date(kpi.timestamp);
-                ageSecs = (now - ts) / 1000;
+                let tsStr = String(kpi.timestamp).trim();
+                if (!tsStr.endsWith('Z') && !tsStr.includes('+')) {
+                    tsStr = tsStr.replace(' ', 'T') + 'Z';
+                }
+                const ts = new Date(tsStr);
+                ageSecs = Math.max(0, (now.getTime() - ts.getTime()) / 1000);
             }
             const fresh = ageSecs !== null && ageSecs < KPI_STALE_SECS;
             const stale = ageSecs !== null && ageSecs >= KPI_STALE_SECS;

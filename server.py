@@ -914,7 +914,7 @@ def upload():
         alert_status, alert_axis = store_teensy_data(file.filename, parsed, date_str, epoch_time)
 
         # Update KPI cache (no raw JSON available for file uploads, so velocity stays None)
-        ts_iso = datetime.fromtimestamp(epoch_time).isoformat()
+        ts_iso = datetime.fromtimestamp(epoch_time, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         with kpi_lock:
             _update_latest_kpi(None, parsed, ts_iso)
 
@@ -1098,7 +1098,7 @@ def receive_esp32_data():
         alert_status, alert_axis = store_teensy_data(filename, parsed, date_str, epoch_t)
 
         # 3a. Update KPI cache (velocity captured here from raw JSON before it is lost)
-        ts_iso = datetime.fromtimestamp(epoch_t).isoformat()
+        ts_iso = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         with kpi_lock:
             _update_latest_kpi(data, parsed, ts_iso)
 
