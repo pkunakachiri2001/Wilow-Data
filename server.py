@@ -59,26 +59,26 @@ os.makedirs(DATA_BY_DATE_DIR, exist_ok=True)
 THRESHOLDS = {
     'z_axis': {
         'acceleration': {
-            'over_positive': 45,
-            'under_positive': 6.5,
-            'under_negative': -6.5,
-            'over_negative': -20
+            'over_positive': 70,
+            'under_positive': 0,
+            'under_negative': 0,
+            'over_negative': -70
         }
     },
     'x_axis': {
         'acceleration': {
-            'over_positive': 45,
-            'under_positive': 6.5,
-            'under_negative': -6.5,
-            'over_negative': -20
+            'over_positive': 70,
+            'under_positive': 0,
+            'under_negative': 0,
+            'over_negative': -70
         }
     },
     'y_axis': {
         'acceleration': {
-            'over_positive': 45,
-            'under_positive': 6.5,
-            'under_negative': -6.5,
-            'over_negative': -20
+            'over_positive': 70,
+            'under_positive': 0,
+            'under_negative': 0,
+            'over_negative': -70
         }
     }
 }
