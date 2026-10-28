@@ -17,6 +17,7 @@ from flask_cors import CORS
 import os
 import io
 import copy
+import math
 import random
 from datetime import datetime
 from threading import Lock
@@ -107,15 +108,57 @@ def _update_latest_kpi(data_json, parsed_row, ts_str):
     latest_kpi['displacement']['Y']['p2p']  = _safe(parsed_row.get('disp_p2p_y_mm'))
 
     # ---- Velocity (m/s) ----
-    def _vel(axis_key):
-        raw = data_json.get(axis_key) if data_json else None
-        if isinstance(raw, dict):
-            return _safe(raw.get('peak')), _safe(raw.get('p2p'))
+    # 1. Raw JSON if provided
+    # 2. Derived from displacement & dominant FFT frequency: v_peak = 2*pi*f * (d_mm/1000)
+    # 3. Fallback from acceleration: v_peak = a_peak / (2*pi*f)
+    freq = _safe(parsed_row.get('fft1_freq') or parsed_row.get('FFT1_Freq'))
+    if not freq or freq <= 0:
+        peaks = parsed_row.get('fft_peaks', [])
+        if peaks and len(peaks) > 0 and peaks[0][0] > 0:
+            freq = float(peaks[0][0])
+        else:
+            freq = 50.0  # nominal 50 Hz industrial baseline
+    omega = 2.0 * math.pi * freq
+
+    def _vel(axis_name, raw_axis_key):
+        # 1. Direct from raw JSON if available
+        if data_json:
+            raw = data_json.get(raw_axis_key)
+            if isinstance(raw, dict):
+                p = _safe(raw.get('peak'))
+                p2p = _safe(raw.get('p2p'))
+                if p is not None:
+                    return p, p2p
+            elif raw is not None:
+                try:
+                    f = float(raw)
+                    return round(f, 6), round(f * 2.0, 6)
+                except (TypeError, ValueError):
+                    pass
+
+        # 2. Derive from displacement (mm)
+        d_peak = _safe(parsed_row.get(f'disp_peak_{axis_name.lower()}_mm') or parsed_row.get(f'Disp_Peak_{axis_name.upper()}_mm'))
+        d_p2p  = _safe(parsed_row.get(f'disp_p2p_{axis_name.lower()}_mm') or parsed_row.get(f'Disp_P2P_{axis_name.upper()}_mm'))
+        if d_peak is not None and d_peak > 0:
+            v_peak = omega * (d_peak / 1000.0)
+            v_p2p  = omega * (d_p2p / 1000.0) if d_p2p is not None else v_peak * 2.0
+            return round(v_peak, 6), round(v_p2p, 6)
+
+        # 3. Fallback from acceleration (m/s^2)
+        max_a = _safe(parsed_row.get(f'max_a{axis_name.lower()}') or parsed_row.get(f'Max_A{axis_name.upper()}'))
+        min_a = _safe(parsed_row.get(f'min_a{axis_name.lower()}') or parsed_row.get(f'Min_A{axis_name.upper()}'))
+        if max_a is not None or min_a is not None:
+            a_peak = max(abs(max_a or 0), abs(min_a or 0))
+            if a_peak > 0:
+                v_peak = a_peak / omega
+                v_p2p  = v_peak * 2.0
+                return round(v_peak, 6), round(v_p2p, 6)
+
         return None, None
 
-    latest_kpi['velocity']['Z']['peak'], latest_kpi['velocity']['Z']['p2p'] = _vel('vel_z_ms')
-    latest_kpi['velocity']['X']['peak'], latest_kpi['velocity']['X']['p2p'] = _vel('vel_x_ms')
-    latest_kpi['velocity']['Y']['peak'], latest_kpi['velocity']['Y']['p2p'] = _vel('vel_y_ms')
+    latest_kpi['velocity']['Z']['peak'], latest_kpi['velocity']['Z']['p2p'] = _vel('Z', 'vel_z_ms')
+    latest_kpi['velocity']['X']['peak'], latest_kpi['velocity']['X']['p2p'] = _vel('X', 'vel_x_ms')
+    latest_kpi['velocity']['Y']['peak'], latest_kpi['velocity']['Y']['p2p'] = _vel('Y', 'vel_y_ms')
 
     # ---- Acceleration (m/s^2) ----
     def _acc_kpi(max_key, min_key):
