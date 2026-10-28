@@ -16,6 +16,7 @@ from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import os
 import io
+import copy
 import random
 from datetime import datetime
 from threading import Lock
@@ -66,6 +67,78 @@ latest_status = {
     'ai_confidence': None,
     'ai_status': None
 }
+
+latest_kpi = {
+    'timestamp': None,
+    'displacement': {
+        'X': {'peak': None, 'p2p': None},
+        'Y': {'peak': None, 'p2p': None},
+        'Z': {'peak': None, 'p2p': None},
+    },
+    'velocity': {
+        'X': {'peak': None, 'p2p': None},
+        'Y': {'peak': None, 'p2p': None},
+        'Z': {'peak': None, 'p2p': None},
+    },
+    'acceleration': {
+        'X': {'peak': None, 'p2p': None},
+        'Y': {'peak': None, 'p2p': None},
+        'Z': {'peak': None, 'p2p': None},
+    },
+}
+kpi_lock = Lock()
+
+def _update_latest_kpi(data_json, parsed_row, ts_str):
+    global latest_kpi
+
+    def _safe(v):
+        try:
+            f = float(v)
+            return f if f != 0.0 else None
+        except (TypeError, ValueError):
+            return None
+
+    # ---- Displacement (mm) ----
+    latest_kpi['displacement']['Z']['peak'] = _safe(parsed_row.get('disp_peak_z_mm'))
+    latest_kpi['displacement']['Z']['p2p']  = _safe(parsed_row.get('disp_p2p_z_mm'))
+    latest_kpi['displacement']['X']['peak'] = _safe(parsed_row.get('disp_peak_x_mm'))
+    latest_kpi['displacement']['X']['p2p']  = _safe(parsed_row.get('disp_p2p_x_mm'))
+    latest_kpi['displacement']['Y']['peak'] = _safe(parsed_row.get('disp_peak_y_mm'))
+    latest_kpi['displacement']['Y']['p2p']  = _safe(parsed_row.get('disp_p2p_y_mm'))
+
+    # ---- Velocity (m/s) ----
+    def _vel(axis_key):
+        raw = data_json.get(axis_key) if data_json else None
+        if isinstance(raw, dict):
+            return _safe(raw.get('peak')), _safe(raw.get('p2p'))
+        return None, None
+
+    latest_kpi['velocity']['Z']['peak'], latest_kpi['velocity']['Z']['p2p'] = _vel('vel_z_ms')
+    latest_kpi['velocity']['X']['peak'], latest_kpi['velocity']['X']['p2p'] = _vel('vel_x_ms')
+    latest_kpi['velocity']['Y']['peak'], latest_kpi['velocity']['Y']['p2p'] = _vel('vel_y_ms')
+
+    # ---- Acceleration (m/s^2) ----
+    def _acc_kpi(max_key, min_key):
+        max_v = _safe(parsed_row.get(max_key))
+        min_v = _safe(parsed_row.get(min_key))
+        if max_v is None and min_v is None:
+            return None, None
+        peak = None
+        p2p  = None
+        if max_v is not None and min_v is not None:
+            peak = max(abs(max_v), abs(min_v))
+            p2p  = max_v - min_v
+        elif max_v is not None:
+            peak = abs(max_v)
+        elif min_v is not None:
+            peak = abs(min_v)
+        return peak, p2p
+
+    latest_kpi['acceleration']['Z']['peak'], latest_kpi['acceleration']['Z']['p2p'] = _acc_kpi('max_az', 'min_az')
+    latest_kpi['acceleration']['X']['peak'], latest_kpi['acceleration']['X']['p2p'] = _acc_kpi('max_ax', 'min_ax')
+    latest_kpi['acceleration']['Y']['peak'], latest_kpi['acceleration']['Y']['p2p'] = _acc_kpi('max_ay', 'min_ay')
+
+    latest_kpi['timestamp'] = ts_str
 
 last_ai_auto_event_time = 0  # Timestamp of last auto-extraction
 
@@ -471,6 +544,10 @@ def upload():
                 print(f"[OK] Max_Az={max_az:.4f}")
 
         top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
+        ts_iso = datetime.fromtimestamp(epoch_t).isoformat()
+        with kpi_lock:
+            _update_latest_kpi(None, parsed, ts_iso)
+
         with status_lock:
             latest_status['timestamp'] = datetime.fromtimestamp(epoch_t).strftime('%Y-%m-%d %H:%M:%S')
             latest_status['magnitude'] = max_az or 0
@@ -603,6 +680,10 @@ def receive_esp32_data():
                 print(f"[OK] Max_Az={max_az:.4f}")
 
         top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
+        ts_iso = datetime.fromtimestamp(epoch_t).isoformat()
+        with kpi_lock:
+            _update_latest_kpi(data, parsed, ts_iso)
+
         # ---- AI Model Check & Auto-Trigger ----
         global last_ai_auto_event_time
         ai_confidence, ai_status = evaluate_ai_anomaly(parsed)
@@ -675,6 +756,33 @@ def api_axis_data():
 def api_latest_status():
     with status_lock:
         return jsonify(latest_status)
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return '', 204
+
+
+@app.route("/api/latest_kpi")
+def api_latest_kpi():
+    """
+    Return the most recent KPI snapshot:
+    acceleration, velocity, displacement per axis (peak and peak-to-peak),
+    plus the timestamp of the last reading.
+    If latest_kpi is empty (e.g. freshly deployed on Render), populate from Aiven DB.
+    """
+    global latest_kpi
+    with kpi_lock:
+        if latest_kpi['timestamp'] is None:
+            try:
+                row = db.get_latest_row_dict()
+                if row and row.get('time_sec'):
+                    ts = row['time_sec']
+                    ts_iso = datetime.fromtimestamp(ts).isoformat()
+                    _update_latest_kpi(None, row, ts_iso)
+            except Exception as e:
+                print(f"[CLOUD KPI WARN] Could not hydrate from DB: {e}")
+        return jsonify(copy.deepcopy(latest_kpi))
 
 
 @app.route("/api/thresholds")

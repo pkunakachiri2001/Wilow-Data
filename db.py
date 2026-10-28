@@ -202,6 +202,31 @@ def get_latest_timestamp() -> float:
         _put_conn(conn)
 
 
+def get_latest_row_dict() -> dict:
+    """
+    Fetch the single newest row by time_sec from vibration_data as a dictionary.
+    Used by cloud server to hydrate latest_kpi on startup or after restarts.
+    """
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT {_COL_LIST}
+                FROM vibration_data
+                ORDER BY time_sec DESC
+                LIMIT 1
+            """)
+            row = cur.fetchone()
+            if not row:
+                return {}
+            return dict(zip(DB_COLUMNS, row))
+    except Exception as e:
+        print(f"[DB ERROR] get_latest_row_dict: {e}")
+        return {}
+    finally:
+        _put_conn(conn)
+
+
 def fetch_rows_since(epoch_time: float) -> list:
     """
     Fetch all rows with time_sec > epoch_time.

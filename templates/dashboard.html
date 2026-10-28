@@ -2268,10 +2268,11 @@
         // ========== DATE FUNCTIONS ==========
         async function loadAvailableDates() {
             try {
+                const select = document.getElementById('dateSelect');
+                if (!select) return;
+
                 const response = await fetch('/api/available-dates');
                 const data = await response.json();
-                
-                const select = document.getElementById('dateSelect');
                 
                 if (data.success && data.dates && data.dates.length > 0) {
                     select.innerHTML = '';
@@ -2296,7 +2297,8 @@
                 }
             } catch (error) {
                 console.error('[DATES] Error loading:', error);
-                document.getElementById('dateSelect').innerHTML = '<option value="">🔴 Live</option>';
+                const select = document.getElementById('dateSelect');
+                if (select) select.innerHTML = '<option value="">🔴 Live</option>';
             }
         }
 
