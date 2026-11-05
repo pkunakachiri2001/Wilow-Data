@@ -56,13 +56,29 @@ _INSERT_SQL  = f"""
 
 def _make_dsn() -> str:
     """
-    Return DATABASE_URL for Aiven DB.
-    (Removed aggressive keepalives used for Aiven serverless).
+    Return DATABASE_URL for Aiven DB with keepalives to ensure orphaned
+    sessions from previous deploys or killed containers are freed quickly.
     """
-    return DATABASE_URL
+    if not DATABASE_URL:
+        return ''
+    dsn = DATABASE_URL
+    sep = '&' if '?' in dsn else '?'
+    params = [
+        'sslmode=require',
+        'keepalives=1',
+        'keepalives_idle=20',
+        'keepalives_interval=10',
+        'keepalives_count=3',
+    ]
+    for p in params:
+        k = p.split('=')[0]
+        if f"{k}=" not in dsn:
+            dsn = f"{dsn}{sep}{p}"
+            sep = '&'
+    return dsn
 
 
-POOL_MAX_CONN = 15
+POOL_MAX_CONN = 4
 _pool = None
 
 
@@ -113,7 +129,11 @@ class DBConnectionPool:
                 conn = None
 
         try:
-            conn = psycopg2.connect(self.dsn_func(), connect_timeout=10)
+            conn = psycopg2.connect(
+                self.dsn_func(),
+                connect_timeout=10,
+                options='-c idle_in_transaction_session_timeout=15000 -c statement_timeout=20000',
+            )
             return conn
         except Exception:
             self._sem.release()
