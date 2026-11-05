@@ -445,7 +445,18 @@ def epoch_from_filename(filename):
 
 
 # ================= DATA QUERY (FROM AIVEN) =================
-def get_axis_data(axis='Z', last_n_minutes=None, start_time=None, end_time=None):
+_axis_data_cache = {}
+
+
+def get_axis_data(axis='Z', metric='acceleration', last_n_minutes=None, start_time=None, end_time=None):
+    is_live_query = (start_time is None and end_time is None)
+    cache_key = (str(axis).upper(), str(metric).lower(), last_n_minutes or 10)
+    now = time.time()
+    if is_live_query and cache_key in _axis_data_cache:
+        cached_res, cache_t = _axis_data_cache[cache_key]
+        if now - cache_t < 3.0:
+            return cached_res
+
     try:
         rows = db.fetch_rows_for_chart(
             axis=axis,
@@ -456,21 +467,43 @@ def get_axis_data(axis='Z', last_n_minutes=None, start_time=None, end_time=None)
         if not rows:
             return None
 
-        # Columns from fetch_rows_for_chart:
-        # 0=date, 1=time_sec, 2=max_az, 3=min_az, 4=mean_az, 5=std_az,
-        # 6=skewness_az, 7=kurtosis_az, 8=max_ax, 9=min_ax, 10=mean_ax,
-        # 11=fft1_freq, 12=fft1_mag, ...
+        axis_upper = (axis or 'Z').upper()
+        col_idx = {col: i for i, col in enumerate(db.DB_COLUMNS)}
 
-        if axis == 'Z':
-            max_idx, min_idx, avg_idx = 2, 3, 4
-        else:
-            max_idx, min_idx, avg_idx = 8, 9, 10
+        if metric == 'displacement':
+            if axis_upper == 'Z':
+                max_idx = col_idx.get('disp_peak_z_mm', 14)
+                min_idx = col_idx.get('disp_p2p_z_mm', 15)
+                avg_idx = col_idx.get('disp_rms_z_mm', 16)
+            elif axis_upper == 'Y':
+                max_idx = col_idx.get('disp_peak_y_mm', 20)
+                min_idx = col_idx.get('disp_p2p_y_mm', 21)
+                avg_idx = col_idx.get('disp_rms_y_mm', 22)
+            else:  # X
+                max_idx = col_idx.get('disp_peak_x_mm', 17)
+                min_idx = col_idx.get('disp_p2p_x_mm', 18)
+                avg_idx = col_idx.get('disp_rms_x_mm', 19)
+        else:  # acceleration
+            if axis_upper == 'Z':
+                max_idx = col_idx.get('max_az', 2)
+                min_idx = col_idx.get('min_az', 3)
+                avg_idx = col_idx.get('mean_az', 4)
+            elif axis_upper == 'Y':
+                max_idx = col_idx.get('max_ay', 11)
+                min_idx = col_idx.get('min_ay', 12)
+                avg_idx = col_idx.get('mean_ay', 13)
+            else:  # X
+                max_idx = col_idx.get('max_ax', 8)
+                min_idx = col_idx.get('min_ax', 9)
+                avg_idx = col_idx.get('mean_ax', 10)
+
+        fft_idx = col_idx.get('fft1_freq', 23)
 
         timestamps      = [r[1] for r in rows]
         max_values      = [r[max_idx] for r in rows]
         min_values      = [r[min_idx] for r in rows]
         avg_values      = [r[avg_idx] for r in rows]
-        frequencies     = [r[11] for r in rows]  # fft1_freq
+        frequencies     = [r[fft_idx] for r in rows]
 
         datetime_labels = [
             datetime.fromtimestamp(ts).astimezone().isoformat() for ts in timestamps
@@ -479,17 +512,22 @@ def get_axis_data(axis='Z', last_n_minutes=None, start_time=None, end_time=None)
         valid_freqs = [f for f in frequencies if f is not None]
         avg_freq    = sum(valid_freqs) / len(valid_freqs) if valid_freqs else None
 
-        return {
+        result = {
             'timestamps':      timestamps,
             'datetime_labels': datetime_labels,
             'max':             max_values,
             'min':             min_values,
             'avg':             avg_values,
             'frequency':       float(avg_freq) if avg_freq is not None else None,
-            'axis':            axis,
-            'metric':          'acceleration',
+            'axis':            axis_upper,
+            'metric':          metric,
             'alerts':          {'datetimes': [], 'values': []}
         }
+
+        if is_live_query:
+            _axis_data_cache[cache_key] = (result, now)
+
+        return result
     except Exception as e:
         print(f"[ERROR] get_axis_data (cloud): {e}")
         import traceback; traceback.print_exc()
@@ -804,18 +842,19 @@ def receive_esp32_data():
 @app.route("/api/axis_data")
 def api_axis_data():
     axis       = request.args.get('axis', 'Z')
+    metric     = request.args.get('metric', 'acceleration')
     minutes    = request.args.get('minutes')
     start_time = request.args.get('start_time')
     end_time   = request.args.get('end_time')
 
     if start_time and end_time:
-        data = get_axis_data(axis, start_time=start_time, end_time=end_time)
+        data = get_axis_data(axis, metric=metric, start_time=start_time, end_time=end_time)
     else:
         minutes = int(minutes) if minutes else 10
-        data = get_axis_data(axis, last_n_minutes=minutes)
+        data = get_axis_data(axis, metric=metric, last_n_minutes=minutes)
 
     if data is None:
-        return jsonify({"error": "No data available"}), 404
+        return jsonify({"error": "No data available", "axis": axis, "metric": metric}), 404
     return jsonify(data)
 
 
@@ -824,11 +863,11 @@ _last_db_sync_time = 0.0
 def _sync_latest_from_db(force=False):
     """
     Fetch newest row from Aiven DB and refresh both latest_kpi and latest_status.
-    Throttled to run at most once every 1.5 seconds unless force=True.
+    Throttled to run at most once every 2.0 seconds unless force=True.
     """
     global _last_db_sync_time, latest_kpi, latest_status
     now_mono = time.time()
-    if not force and (now_mono - _last_db_sync_time < 1.5):
+    if not force and (now_mono - _last_db_sync_time < 2.0):
         return
 
     _last_db_sync_time = now_mono
@@ -959,19 +998,20 @@ def handle_disconnect():
 @socketio.on('request_axis_data')
 def handle_axis_request(data):
     axis       = data.get('axis', 'Z')
+    metric     = data.get('metric', 'acceleration')
     minutes    = data.get('minutes', 10)
     start_time = data.get('start_time')
     end_time   = data.get('end_time')
 
     if start_time and end_time:
-        graph_data = get_axis_data(axis, start_time=start_time, end_time=end_time)
+        graph_data = get_axis_data(axis, metric=metric, start_time=start_time, end_time=end_time)
     else:
-        graph_data = get_axis_data(axis, last_n_minutes=minutes)
+        graph_data = get_axis_data(axis, metric=metric, last_n_minutes=minutes)
 
     if graph_data:
         emit('axis_data', graph_data)
     else:
-        emit('axis_data', {'error': 'No data available', 'axis': axis})
+        emit('axis_data', {'error': 'No data available', 'axis': axis, 'metric': metric})
 
 
 # ================= MAIN =================

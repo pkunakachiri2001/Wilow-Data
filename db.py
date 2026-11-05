@@ -17,8 +17,10 @@ init_db() (ALTER TABLE ... ADD COLUMN IF NOT EXISTS) — no data is lost.
 """
 
 import os
+import queue
 import psycopg2
 import psycopg2.pool
+import psycopg2.extensions
 from datetime import datetime
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
@@ -60,82 +62,128 @@ def _make_dsn() -> str:
     return DATABASE_URL
 
 
-POOL_MAX_CONN = 20
-_pool_semaphore = None
+POOL_MAX_CONN = 15
+_pool = None
+
+
+class DBConnectionPool:
+    """
+    Thread-safe & greenlet-safe self-healing connection pool.
+    Uses a LifoQueue for connection reuse and a BoundedSemaphore to strictly
+    bound maximum concurrent connections to Aiven (avoiding pool exhaustion).
+    Stale/dropped connections are transparently detected and refreshed.
+    """
+    def __init__(self, dsn_func, max_conn=POOL_MAX_CONN, timeout=12):
+        self.dsn_func = dsn_func
+        self.max_conn = max_conn
+        self.timeout = timeout
+        try:
+            from gevent.queue import LifoQueue
+            from gevent.lock import BoundedSemaphore
+            self._queue = LifoQueue(maxsize=max_conn)
+            self._sem = BoundedSemaphore(max_conn)
+        except ImportError:
+            self._queue = queue.LifoQueue(maxsize=max_conn)
+            import threading
+            self._sem = threading.BoundedSemaphore(max_conn)
+
+    def getconn(self, timeout=None):
+        to = timeout if timeout is not None else self.timeout
+        acquired = self._sem.acquire(timeout=to)
+        if not acquired:
+            raise psycopg2.pool.PoolError(f"Database connection pool exhausted (waited {to}s)")
+
+        conn = None
+        try:
+            conn = self._queue.get_nowait()
+        except Exception:
+            pass
+
+        if conn is not None:
+            try:
+                if not getattr(conn, 'closed', False):
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                    return conn
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = None
+
+        try:
+            conn = psycopg2.connect(self.dsn_func(), connect_timeout=10)
+            return conn
+        except Exception:
+            self._sem.release()
+            raise
+
+    def putconn(self, conn, close=False):
+        if conn is None:
+            return
+        released_slot = False
+        try:
+            if close or getattr(conn, 'closed', False):
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                self._sem.release()
+                released_slot = True
+                return
+
+            try:
+                if conn.status == psycopg2.extensions.STATUS_IN_TRANSACTION:
+                    conn.rollback()
+                self._queue.put_nowait(conn)
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                self._sem.release()
+                released_slot = True
+        except Exception:
+            if not released_slot:
+                try:
+                    self._sem.release()
+                except Exception:
+                    pass
+
+    def closeall(self):
+        while True:
+            try:
+                conn = self._queue.get_nowait()
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                try:
+                    self._sem.release()
+                except Exception:
+                    pass
+            except Exception:
+                break
 
 
 def _get_pool():
-    global _pool, _pool_semaphore
-    if _pool is None or _pool.closed:
+    global _pool
+    if _pool is None:
         if not DATABASE_URL:
             raise RuntimeError("[DB] DATABASE_URL env var is not set.")
-        _pool = psycopg2.pool.ThreadedConnectionPool(
-            1, POOL_MAX_CONN, _make_dsn(),
-            connect_timeout=10,  # never hang forever on an unreachable DB
-        )
-        try:
-            from gevent.lock import BoundedSemaphore
-            _pool_semaphore = BoundedSemaphore(POOL_MAX_CONN)
-        except ImportError:
-            _pool_semaphore = None
+        _pool = DBConnectionPool(_make_dsn, max_conn=POOL_MAX_CONN, timeout=12)
     return _pool
 
 
 def _get_conn():
-    """
-    Fetch a connection from the pool.
-    Cooperatively waits on a gevent semaphore if all connections are in use,
-    preventing 'connection pool exhausted' PoolError under concurrent load.
-    Pings the connection with SELECT 1 to ensure it's alive.
-    If the pool is poisoned by a stale Aiven connection, reset it entirely.
-    """
-    global _pool, _pool_semaphore
-    _get_pool()  # Ensure pool and semaphore are initialized
-
-    if _pool_semaphore is not None:
-        # Wait up to 15s for a connection slot before timing out cleanly
-        acquired = _pool_semaphore.acquire(timeout=15)
-        if not acquired:
-            raise psycopg2.pool.PoolError("Timed out waiting for database connection from pool")
-
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            conn = _pool.getconn()
-            # Ping the connection to ensure it is alive
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-            return conn
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            print(f"[DB] Stale connection detected on getconn (attempt {attempt+1}): {e}. Resetting pool.")
-            try:
-                if _pool and not _pool.closed:
-                    _pool.closeall()
-            except Exception:
-                pass
-            _pool = None
-            _get_pool()
-
-    # Fallback to returning a fresh connection on the last try
-    try:
-        return _pool.getconn()
-    except Exception:
-        if _pool_semaphore is not None:
-            _pool_semaphore.release()
-        raise
+    return _get_pool().getconn()
 
 
-def _put_conn(conn):
-    global _pool, _pool_semaphore
-    try:
-        if _pool and not _pool.closed and conn:
-            _pool.putconn(conn)
-    finally:
-        if _pool_semaphore is not None:
-            try:
-                _pool_semaphore.release()
-            except ValueError:
-                pass
+def _put_conn(conn, close=False):
+    global _pool
+    if _pool is not None and conn is not None:
+        _pool.putconn(conn, close=close)
 
 
 # ================= INIT =================
@@ -305,7 +353,10 @@ def fetch_rows_for_chart(axis='Z', start_time=None, end_time=None, last_n_minute
                 cur.execute(f"""
                     SELECT {_COL_LIST}
                     FROM vibration_data
-                    WHERE time_sec >= EXTRACT(EPOCH FROM NOW()) - %s
+                    WHERE time_sec >= (
+                        SELECT COALESCE(MAX(time_sec), EXTRACT(EPOCH FROM NOW())) - %s
+                        FROM vibration_data
+                    )
                     ORDER BY time_sec ASC
                 """, (float(last_n_minutes) * 60,))
             else:
