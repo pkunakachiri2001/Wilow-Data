@@ -247,11 +247,15 @@ def evaluate_ai_anomaly(parsed):
 OVERFLOW_DELETE_N = 10_000
 
 # ================= DB INIT =================
-try:
-    db.init_db()
-    print("[CLOUD] Aiven DB initialised.")
-except Exception as e:
-    print(f"[CLOUD WARNING] DB init failed: {e} — will retry on first request.")
+def _init_db_async():
+    try:
+        db.init_db()
+        print("[CLOUD] Aiven DB initialised.", flush=True)
+    except Exception as e:
+        print(f"[CLOUD WARNING] DB init failed: {e} — will retry on first request.", flush=True)
+
+import gevent
+gevent.spawn(_init_db_async)
 
 
 # ================= THRESHOLD CHECK =================
