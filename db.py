@@ -60,30 +60,48 @@ def _make_dsn() -> str:
     return DATABASE_URL
 
 
+POOL_MAX_CONN = 20
+_pool_semaphore = None
+
+
 def _get_pool():
-    global _pool
+    global _pool, _pool_semaphore
     if _pool is None or _pool.closed:
         if not DATABASE_URL:
             raise RuntimeError("[DB] DATABASE_URL env var is not set.")
         _pool = psycopg2.pool.ThreadedConnectionPool(
-            1, 10, _make_dsn(),
+            1, POOL_MAX_CONN, _make_dsn(),
             connect_timeout=10,  # never hang forever on an unreachable DB
         )
+        try:
+            from gevent.lock import BoundedSemaphore
+            _pool_semaphore = BoundedSemaphore(POOL_MAX_CONN)
+        except ImportError:
+            _pool_semaphore = None
     return _pool
 
 
 def _get_conn():
     """
     Fetch a connection from the pool.
+    Cooperatively waits on a gevent semaphore if all connections are in use,
+    preventing 'connection pool exhausted' PoolError under concurrent load.
     Pings the connection with SELECT 1 to ensure it's alive.
-    If the pool is poisoned by a stale Aiven connection, reset it entirely
-    so the next request gets a fresh healthy connection instead of failing.
+    If the pool is poisoned by a stale Aiven connection, reset it entirely.
     """
-    global _pool
+    global _pool, _pool_semaphore
+    _get_pool()  # Ensure pool and semaphore are initialized
+
+    if _pool_semaphore is not None:
+        # Wait up to 15s for a connection slot before timing out cleanly
+        acquired = _pool_semaphore.acquire(timeout=15)
+        if not acquired:
+            raise psycopg2.pool.PoolError("Timed out waiting for database connection from pool")
+
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            conn = _get_pool().getconn()
+            conn = _pool.getconn()
             # Ping the connection to ensure it is alive
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
@@ -96,13 +114,28 @@ def _get_conn():
             except Exception:
                 pass
             _pool = None
+            _get_pool()
 
     # Fallback to returning a fresh connection on the last try
-    return _get_pool().getconn()
+    try:
+        return _pool.getconn()
+    except Exception:
+        if _pool_semaphore is not None:
+            _pool_semaphore.release()
+        raise
 
 
 def _put_conn(conn):
-    _get_pool().putconn(conn)
+    global _pool, _pool_semaphore
+    try:
+        if _pool and not _pool.closed and conn:
+            _pool.putconn(conn)
+    finally:
+        if _pool_semaphore is not None:
+            try:
+                _pool_semaphore.release()
+            except ValueError:
+                pass
 
 
 # ================= INIT =================
