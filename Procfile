@@ -1,1 +1,1 @@
-web: gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 --bind 0.0.0.0:$PORT cloud_server:app
+web: gunicorn -k gevent -w 1 --bind 0.0.0.0:$PORT --access-logfile - --error-logfile - cloud_server:app
