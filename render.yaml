@@ -3,7 +3,7 @@ services:
     name: vibration-monitor
     env: python
     buildCommand: pip install -r requirements_cloud.txt
-    startCommand: gunicorn -k gevent -w 1 --bind 0.0.0.0:$PORT --access-logfile - --error-logfile - cloud_server:app
+    startCommand: gunicorn -k gevent -w 1 --bind 0.0.0.0:$PORT --timeout 120 --access-logfile - --error-logfile - cloud_server:app
     plan: free
     envVars:
       - key: DATABASE_URL

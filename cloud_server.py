@@ -197,14 +197,22 @@ AI_MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'anomaly
 scaler_path = os.path.join(AI_MODEL_DIR, 'scaler.joblib')
 model_path = os.path.join(AI_MODEL_DIR, 'isolation_forest_model.joblib')
 
-try:
-    ai_scaler = joblib.load(scaler_path)
-    ai_model = joblib.load(model_path)
-    print(f"[AI MODEL] Successfully loaded Isolation Forest and Scaler from {AI_MODEL_DIR}")
-except Exception as e:
-    ai_scaler = None
-    ai_model = None
-    print(f"[AI MODEL ERROR] Failed to load models: {e}. AI anomaly detection disabled.")
+ai_scaler = None
+ai_model = None
+
+def _load_ai_models_async():
+    global ai_scaler, ai_model
+    try:
+        ai_scaler = joblib.load(scaler_path)
+        ai_model = joblib.load(model_path)
+        print(f"[AI MODEL] Successfully loaded Isolation Forest and Scaler from {AI_MODEL_DIR}", flush=True)
+    except Exception as e:
+        ai_scaler = None
+        ai_model = None
+        print(f"[AI MODEL ERROR] Failed to load models: {e}. AI anomaly detection disabled.", flush=True)
+
+import gevent
+gevent.spawn(_load_ai_models_async)
 
 def evaluate_ai_anomaly(parsed):
     if ai_model is None or ai_scaler is None:
