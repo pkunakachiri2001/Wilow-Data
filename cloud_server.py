@@ -11,6 +11,15 @@ Identical logic to server.py but:
 from gevent import monkey
 monkey.patch_all()  # MUST be first import — patches stdlib for async
 
+# psycopg2 is a C extension: gevent's monkey-patching does NOT make its network
+# calls cooperative, so a slow/unreachable Aiven DB would freeze the whole worker
+# (Render then reports "No open HTTP ports"). psycogreen fixes that.
+try:
+    from psycogreen.gevent import patch_psycopg
+    patch_psycopg()
+except ImportError:
+    print("[CLOUD WARNING] psycogreen not installed — DB calls will block the event loop.", flush=True)
+
 from flask import Flask, request, jsonify, render_template
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -212,7 +221,9 @@ def _load_ai_models_async():
         print(f"[AI MODEL ERROR] Failed to load models: {e}. AI anomaly detection disabled.", flush=True)
 
 import gevent
-gevent.spawn(_load_ai_models_async)
+# Unpickling the model is CPU-bound; run it in a real OS thread (gevent's native
+# threadpool) so the event loop keeps serving HTTP requests meanwhile.
+gevent.get_hub().threadpool.spawn(_load_ai_models_async)
 
 def evaluate_ai_anomaly(parsed):
     if ai_model is None or ai_scaler is None:

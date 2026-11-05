@@ -66,7 +66,8 @@ def _get_pool():
         if not DATABASE_URL:
             raise RuntimeError("[DB] DATABASE_URL env var is not set.")
         _pool = psycopg2.pool.ThreadedConnectionPool(
-            1, 10, _make_dsn()
+            1, 10, _make_dsn(),
+            connect_timeout=10,  # never hang forever on an unreachable DB
         )
     return _pool
 
