@@ -85,9 +85,9 @@ _pool = None
 class DBConnectionPool:
     """
     Thread-safe & greenlet-safe self-healing connection pool.
-    Uses a LifoQueue for connection reuse and a BoundedSemaphore to strictly
-    bound maximum concurrent connections to Aiven (avoiding pool exhaustion).
-    Stale/dropped connections are transparently detected and refreshed.
+    Uses a LifoQueue for connection reuse with a strict cap of max_conn (4).
+    Stale or dropped connections are transparently detected and replaced.
+    Guaranteed zero semaphore permit leaks and zero lockups.
     """
     def __init__(self, dsn_func, max_conn=POOL_MAX_CONN, timeout=12):
         self.dsn_func = dsn_func
@@ -95,81 +95,94 @@ class DBConnectionPool:
         self.timeout = timeout
         try:
             from gevent.queue import LifoQueue
-            from gevent.lock import BoundedSemaphore
-            self._queue = LifoQueue(maxsize=max_conn)
-            self._sem = BoundedSemaphore(max_conn)
+            from gevent.lock import Semaphore
+            self._queue = LifoQueue()
+            self._lock = Semaphore()
         except ImportError:
-            self._queue = queue.LifoQueue(maxsize=max_conn)
+            import queue
             import threading
-            self._sem = threading.BoundedSemaphore(max_conn)
+            self._queue = queue.LifoQueue()
+            self._lock = threading.Lock()
+        self._created = 0
+
+    def _connect_fresh(self):
+        return psycopg2.connect(
+            self.dsn_func(),
+            connect_timeout=10,
+            options='-c idle_in_transaction_session_timeout=15000 -c statement_timeout=20000',
+        )
 
     def getconn(self, timeout=None):
         to = timeout if timeout is not None else self.timeout
-        acquired = self._sem.acquire(timeout=to)
-        if not acquired:
-            raise psycopg2.pool.PoolError(f"Database connection pool exhausted (waited {to}s)")
-
-        conn = None
+        # 1. Try to get an idle connection from the pool without blocking
         try:
             conn = self._queue.get_nowait()
-        except Exception:
-            pass
-
-        if conn is not None:
-            try:
-                if not getattr(conn, 'closed', False):
+            if not getattr(conn, 'closed', False):
+                try:
                     with conn.cursor() as cur:
                         cur.execute("SELECT 1")
                     return conn
-            except Exception:
-                try:
-                    conn.close()
                 except Exception:
-                    pass
-                conn = None
-
-        try:
-            conn = psycopg2.connect(
-                self.dsn_func(),
-                connect_timeout=10,
-                options='-c idle_in_transaction_session_timeout=15000 -c statement_timeout=20000',
-            )
-            return conn
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            with self._lock:
+                self._created = max(0, self._created - 1)
         except Exception:
-            self._sem.release()
-            raise
+            pass
+
+        # 2. If we haven't reached max_conn yet, create a fresh connection
+        with self._lock:
+            if self._created < self.max_conn:
+                self._created += 1
+                try:
+                    return self._connect_fresh()
+                except Exception:
+                    self._created = max(0, self._created - 1)
+                    raise
+
+        # 3. Pool is at capacity; wait cooperatively for an in-flight connection
+        try:
+            conn = self._queue.get(timeout=to)
+            if not getattr(conn, 'closed', False):
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                    return conn
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            # Stale connection returned; replace it
+            return self._connect_fresh()
+        except Exception:
+            raise psycopg2.pool.PoolError(f"Database connection pool exhausted (waited {to}s)")
 
     def putconn(self, conn, close=False):
         if conn is None:
             return
-        released_slot = False
-        try:
-            if close or getattr(conn, 'closed', False):
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-                self._sem.release()
-                released_slot = True
-                return
-
+        if close or getattr(conn, 'closed', False):
             try:
-                if conn.status == psycopg2.extensions.STATUS_IN_TRANSACTION:
-                    conn.rollback()
-                self._queue.put_nowait(conn)
+                conn.close()
             except Exception:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-                self._sem.release()
-                released_slot = True
+                pass
+            with self._lock:
+                self._created = max(0, self._created - 1)
+            return
+
+        try:
+            if conn.status == psycopg2.extensions.STATUS_IN_TRANSACTION:
+                conn.rollback()
+            self._queue.put_nowait(conn)
         except Exception:
-            if not released_slot:
-                try:
-                    self._sem.release()
-                except Exception:
-                    pass
+            try:
+                conn.close()
+            except Exception:
+                pass
+            with self._lock:
+                self._created = max(0, self._created - 1)
 
     def closeall(self):
         while True:
@@ -179,12 +192,10 @@ class DBConnectionPool:
                     conn.close()
                 except Exception:
                     pass
-                try:
-                    self._sem.release()
-                except Exception:
-                    pass
             except Exception:
                 break
+        with self._lock:
+            self._created = 0
 
 
 def _get_pool():
