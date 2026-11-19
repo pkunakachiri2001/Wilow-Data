@@ -47,10 +47,44 @@ os.makedirs(TEMPLATE_DIR, exist_ok=True)
 THRESHOLDS = {
     'z_axis': {
         'acceleration': {
-            'over_positive':  70,
-            'under_positive':  0,
-            'under_negative':  0,
-            'over_negative':  -70
+            'over_positive': 45.0,     # Max Max
+            'under_positive': 6.5,     # Min Max
+            'under_negative': -6.5,    # Max Min
+            'over_negative': -20.0     # Min Min
+        },
+        'displacement': {
+            'over_positive': 0.5,      # Max Max
+            'under_positive': 0.2,     # Min Max
+            'under_negative': 0.05,    # Max Min
+            'over_negative': 0.0       # Min Min
+        }
+    },
+    'x_axis': {
+        'acceleration': {
+            'over_positive': 45.0,
+            'under_positive': 6.5,
+            'under_negative': -6.5,
+            'over_negative': -20.0
+        },
+        'displacement': {
+            'over_positive': 0.5,
+            'under_positive': 0.2,
+            'under_negative': 0.05,
+            'over_negative': 0.0
+        }
+    },
+    'y_axis': {
+        'acceleration': {
+            'over_positive': 45.0,
+            'under_positive': 6.5,
+            'under_negative': -6.5,
+            'over_negative': -20.0
+        },
+        'displacement': {
+            'over_positive': 0.5,
+            'under_positive': 0.2,
+            'under_negative': 0.05,
+            'over_negative': 0.0
         }
     }
 }
@@ -277,16 +311,77 @@ import gevent
 gevent.spawn(_init_db_async)
 
 
-# ================= THRESHOLD CHECK =================
-def check_threshold_violation(value, thresholds):
-    if value > thresholds['over_positive']:
-        return 'OVER'
-    elif 0 < value < thresholds['under_positive']:
-        return 'UNDER'
-    elif value < thresholds['over_negative']:
-        return 'OVER'
-    elif thresholds['under_negative'] < value < 0:
-        return 'UNDER'
+# ================= THRESHOLD CHECK & AUTO EVENTS =================
+_last_auto_event_time = {}
+_auto_event_lock = Lock()
+
+def trigger_auto_event_creation(fault_type: str, cooldown_secs: int = 30):
+    """Automatically snapshot and create an event file when a threshold is reached"""
+    now = time.time()
+    with _auto_event_lock:
+        last_time = _last_auto_event_time.get(fault_type, 0)
+        if now - last_time < cooldown_secs:
+            return False, "Cooldown active"
+        _last_auto_event_time[fault_type] = now
+
+    def _worker():
+        try:
+            success, msg = extract_and_save_event(fault_type)
+            if success:
+                print(f"[AUTO EVENT] Saved: {msg}", flush=True)
+                socketio.emit('event_logged', {
+                    'fault_type': fault_type,
+                    'message': msg,
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                })
+            else:
+                print(f"[AUTO EVENT] Notice: {msg}", flush=True)
+        except Exception as err:
+            print(f"[AUTO EVENT ERROR] {err}", flush=True)
+
+    gevent.spawn(_worker)
+    return True, "Triggered"
+
+
+def check_threshold_violation(max_val, min_val_or_thresh, maybe_thresh=None):
+    """
+    Check 4 threshold levels (Max Max, Min Max, Max Min, Min Min):
+    - Max Max: max_val > over_positive (Upper Critical Peak)
+    - Min Max: 0 < max_val < under_positive (Upper Warning / Low Positive)
+    - Min Min: min_val < over_negative (Lower Critical Peak)
+    - Max Min: under_negative < min_val < 0 (Lower Warning / Low Negative)
+    """
+    if maybe_thresh is not None:
+        min_val = min_val_or_thresh
+        thresholds = maybe_thresh
+    else:
+        thresholds = min_val_or_thresh
+        min_val = None
+
+    if not thresholds or not isinstance(thresholds, dict):
+        return None
+
+    over_pos = thresholds.get('over_positive')
+    under_pos = thresholds.get('under_positive')
+    under_neg = thresholds.get('under_negative')
+    over_neg = thresholds.get('over_negative')
+
+    # 1. Critical High (Max Max)
+    if max_val is not None and over_pos is not None and max_val > over_pos:
+        return 'Max Max'
+
+    # 2. Critical Low (Min Min)
+    if min_val is not None and over_neg is not None and min_val < over_neg:
+        return 'Min Min'
+
+    # 3. Warning High (Min Max)
+    if max_val is not None and under_pos is not None and under_pos > 0 and 0 < max_val < under_pos:
+        return 'Min Max'
+
+    # 4. Warning Low (Max Min)
+    if min_val is not None and under_neg is not None and under_neg < 0 and under_neg < min_val < 0:
+        return 'Max Min'
+
     return None
 
 
@@ -637,16 +732,19 @@ def upload():
             except Exception as ov_err:
                 print(f"[OVERFLOW CHECK ERROR] {ov_err}")
 
-        # Threshold check on Max_Az
+        # Threshold check on Z, X, Y
         alert_status = None
+        alert_axis = 'Z'
         max_az = parsed.get('max_az')
-        if max_az is not None:
-            violation = check_threshold_violation(max_az, THRESHOLDS['z_axis']['acceleration'])
+        min_az = parsed.get('min_az')
+        if (max_az is not None or min_az is not None) and 'z_axis' in THRESHOLDS:
+            violation = check_threshold_violation(max_az, min_az, THRESHOLDS['z_axis']['acceleration'])
             if violation:
                 alert_status = violation
-                print(f"[ALERT] {violation} | Max_Az={max_az:.4f}")
+                alert_axis = 'Z'
+                print(f"[ALERT] {violation} | Max_Az={max_az} Min_Az={min_az}")
             else:
-                print(f"[OK] Max_Az={max_az:.4f}")
+                print(f"[OK] Max_Az={max_az} Min_Az={min_az}")
 
         top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
         ts_iso = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -661,14 +759,15 @@ def upload():
             if alert_status:
                 latest_status['status']     = f'{alert_status} Threshold'
                 latest_status['alert']      = True
-                latest_status['alert_type'] = f'Z-Axis {alert_status} Threshold'
+                latest_status['alert_type'] = f'{alert_axis}-Axis {alert_status} Threshold'
                 latest_status['alert_time'] = latest_status['timestamp']
                 socketio.emit('alert_notification', {
-                    'alert_type': f'Z-Axis {alert_status} Threshold',
+                    'alert_type': f'{alert_axis}-Axis {alert_status} Threshold',
                     'timestamp':  latest_status['timestamp'],
                     'magnitude':  max_az,
-                    'axis':       'Z'
+                    'axis':       alert_axis
                 })
+                trigger_auto_event_creation(f"{alert_axis}-Axis {alert_status} Threshold")
             else:
                 latest_status['status']     = 'Normal'
                 latest_status['alert']      = False
@@ -775,14 +874,17 @@ def receive_esp32_data():
 
         # ---- Threshold check & socket emit ----
         alert_status = None
+        alert_axis = 'Z'
         max_az = parsed.get('max_az')
-        if max_az is not None:
-            violation = check_threshold_violation(max_az, THRESHOLDS['z_axis']['acceleration'])
+        min_az = parsed.get('min_az')
+        if (max_az is not None or min_az is not None) and 'z_axis' in THRESHOLDS:
+            violation = check_threshold_violation(max_az, min_az, THRESHOLDS['z_axis']['acceleration'])
             if violation:
                 alert_status = violation
-                print(f"[ALERT] {violation} | Max_Az={max_az:.4f}")
+                alert_axis = 'Z'
+                print(f"[ALERT] {violation} | Max_Az={max_az} Min_Az={min_az}")
             else:
-                print(f"[OK] Max_Az={max_az:.4f}")
+                print(f"[OK] Max_Az={max_az} Min_Az={min_az}")
 
         top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
         ts_iso = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -816,15 +918,17 @@ def receive_esp32_data():
                 cause = alert_status if alert_status else 'AI Model'
                 latest_status['status']     = f'{cause} Threshold'
                 latest_status['alert']      = True
-                latest_status['alert_type'] = f'Z-Axis {cause} Threshold'
+                latest_status['alert_type'] = f'{alert_axis}-Axis {cause} Threshold'
                 latest_status['alert_time'] = latest_status['timestamp']
                 socketio.emit('alert_notification', {
-                    'alert_type': f'Z-Axis {cause} Threshold',
+                    'alert_type': f'{alert_axis}-Axis {cause} Threshold',
                     'timestamp':  latest_status['timestamp'],
                     'magnitude':  max_az,
-                    'axis':       'Z',
+                    'axis':       alert_axis,
                     'ai_confidence': ai_confidence
                 })
+                if alert_status:
+                    trigger_auto_event_creation(f"{alert_axis}-Axis {alert_status} Threshold")
             else:
                 latest_status['status']     = 'Normal'
                 latest_status['alert']      = False
@@ -884,11 +988,16 @@ def _sync_latest_from_db(force=False):
             _update_latest_kpi(None, row, ts_utc)
 
         max_az = row.get('max_az')
+        min_az = row.get('min_az')
         top_freq = row.get('fft1_freq') or 0.0
 
         alert_status = None
-        if max_az is not None and 'z_axis' in THRESHOLDS:
-            violation = check_threshold_violation(float(max_az), THRESHOLDS['z_axis']['acceleration'])
+        if (max_az is not None or min_az is not None) and 'z_axis' in THRESHOLDS:
+            violation = check_threshold_violation(
+                float(max_az) if max_az is not None else None,
+                float(min_az) if min_az is not None else None,
+                THRESHOLDS['z_axis']['acceleration']
+            )
             if violation:
                 alert_status = violation
 
@@ -907,6 +1016,8 @@ def _sync_latest_from_db(force=False):
                 latest_status['alert']      = True
                 latest_status['alert_type'] = f'Z-Axis {cause} Threshold'
                 latest_status['alert_time'] = ts_display
+                if alert_status:
+                    trigger_auto_event_creation(f"Z-Axis {alert_status} Threshold")
             else:
                 latest_status['status']     = 'Normal'
                 latest_status['alert']      = False
@@ -934,8 +1045,51 @@ def api_latest_kpi():
         return jsonify(copy.deepcopy(latest_kpi))
 
 
-@app.route("/api/thresholds")
+@app.route("/api/thresholds", methods=["GET", "POST"])
 def api_thresholds():
+    global THRESHOLDS
+    if request.method == "POST":
+        try:
+            data = request.get_json(silent=True) or {}
+            for axis, metrics in data.items():
+                if axis in THRESHOLDS and isinstance(metrics, dict):
+                    for metric, vals in metrics.items():
+                        if metric in THRESHOLDS[axis] and isinstance(vals, dict):
+                            THRESHOLDS[axis][metric].update(vals)
+            if 'axis' in data:
+                axis = data['axis']
+                metric = data.get('metric', 'acceleration')
+                if axis in THRESHOLDS and metric in THRESHOLDS[axis]:
+                    # Max Max (Upper Critical Limit)
+                    if 'max_max' in data and data['max_max'] is not None:
+                        THRESHOLDS[axis][metric]['over_positive'] = float(data['max_max'])
+                    elif 'over_positive' in data and data['over_positive'] is not None:
+                        THRESHOLDS[axis][metric]['over_positive'] = float(data['over_positive'])
+                    elif 'max' in data and data['max'] is not None:
+                        THRESHOLDS[axis][metric]['over_positive'] = float(data['max'])
+
+                    # Min Max (Upper Warning Limit)
+                    if 'min_max' in data and data['min_max'] is not None:
+                        THRESHOLDS[axis][metric]['under_positive'] = float(data['min_max'])
+                    elif 'under_positive' in data and data['under_positive'] is not None:
+                        THRESHOLDS[axis][metric]['under_positive'] = float(data['under_positive'])
+
+                    # Max Min (Lower Warning Limit)
+                    if 'max_min' in data and data['max_min'] is not None:
+                        THRESHOLDS[axis][metric]['under_negative'] = float(data['max_min'])
+                    elif 'under_negative' in data and data['under_negative'] is not None:
+                        THRESHOLDS[axis][metric]['under_negative'] = float(data['under_negative'])
+
+                    # Min Min (Lower Critical Limit)
+                    if 'min_min' in data and data['min_min'] is not None:
+                        THRESHOLDS[axis][metric]['over_negative'] = float(data['min_min'])
+                    elif 'over_negative' in data and data['over_negative'] is not None:
+                        THRESHOLDS[axis][metric]['over_negative'] = float(data['over_negative'])
+                    elif 'min' in data and data['min'] is not None:
+                        THRESHOLDS[axis][metric]['over_negative'] = float(data['min'])
+            return jsonify({"status": "success", "thresholds": THRESHOLDS})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
     return jsonify(THRESHOLDS)
 
 

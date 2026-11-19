@@ -575,9 +575,216 @@
 
         .legend-line.over { background: #ef4444; }
         .legend-line.under { background: #10b981; }
+        .legend-line.thresh-max,
+        .legend-line.thresh-max-max {
+            background: repeating-linear-gradient(90deg, #ef4444, #ef4444 4px, transparent 4px, transparent 8px);
+            height: 3px;
+        }
+        .legend-line.thresh-min-max {
+            background: repeating-linear-gradient(90deg, #f97316, #f97316 4px, transparent 4px, transparent 8px);
+            height: 3px;
+        }
+        .legend-line.thresh-max-min {
+            background: repeating-linear-gradient(90deg, #f59e0b, #f59e0b 4px, transparent 4px, transparent 8px);
+            height: 3px;
+        }
+        .legend-line.thresh-min,
+        .legend-line.thresh-min-min {
+            background: repeating-linear-gradient(90deg, #dc2626, #dc2626 4px, transparent 4px, transparent 8px);
+            height: 3px;
+        }
         .legend-line.max { background: #60a5fa; }
         .legend-line.avg { background: #34d399; }
         .legend-line.min { background: #06b6d4; }
+
+        /* ========== THRESHOLD CONTROLS ON GRAPHS ========== */
+        .threshold-controls-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 6px 10px;
+            background: rgba(15, 23, 42, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            flex-wrap: wrap;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+            user-select: none;
+            cursor: default !important;
+        }
+
+        .thresh-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .thresh-pill {
+            display: inline-flex;
+            align-items: center;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 3px 6px;
+            border-radius: 4px;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+
+        .thresh-pill.max-pill,
+        .thresh-pill.max-max-pill {
+            background: rgba(239, 68, 68, 0.18);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.45);
+        }
+
+        .thresh-pill.min-max-pill {
+            background: rgba(249, 115, 22, 0.18);
+            color: #fb923c;
+            border: 1px solid rgba(249, 115, 22, 0.45);
+        }
+
+        .thresh-pill.max-min-pill {
+            background: rgba(245, 158, 11, 0.18);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.45);
+        }
+
+        .thresh-pill.min-pill,
+        .thresh-pill.min-min-pill {
+            background: rgba(220, 38, 38, 0.18);
+            color: #fca5a5;
+            border: 1px solid rgba(220, 38, 38, 0.45);
+        }
+
+        .thresh-input-wrap {
+            display: inline-flex;
+            align-items: center;
+            background: rgba(30, 41, 59, 0.85);
+            border: 1px solid #475569;
+            border-radius: 6px;
+            overflow: hidden;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .thresh-input-wrap:focus-within {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+        }
+
+        .thresh-input {
+            width: 62px;
+            background: transparent;
+            border: none;
+            color: #f8fafc;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 3px 6px;
+            text-align: right;
+            outline: none;
+            -moz-appearance: textfield;
+            font-family: inherit;
+            cursor: text !important;
+        }
+
+        .thresh-input::-webkit-outer-spin-button,
+        .thresh-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .thresh-stepper {
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid #475569;
+        }
+
+        .thresh-step-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: none;
+            color: #94a3b8;
+            font-size: 8px;
+            padding: 2px 4px;
+            cursor: pointer !important;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+        }
+
+        .thresh-step-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #f8fafc;
+        }
+
+        .thresh-btn {
+            background: #2563eb;
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer !important;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .thresh-btn:hover {
+            background: #1d4ed8;
+            box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
+        }
+
+        .thresh-btn.reset {
+            background: rgba(255, 255, 255, 0.08);
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 4px 8px;
+        }
+
+        .thresh-btn.reset:hover {
+            background: rgba(255, 255, 255, 0.18);
+            color: #f1f5f9;
+        }
+
+        [data-theme="light"] .threshold-controls-bar {
+            background: #e2e8f0;
+            border-color: #cbd5e1;
+        }
+
+        [data-theme="light"] .thresh-input-wrap {
+            background: #ffffff;
+            border-color: #cbd5e1;
+        }
+
+        [data-theme="light"] .thresh-input {
+            color: #0f172a;
+        }
+
+        [data-theme="light"] .thresh-stepper {
+            border-left-color: #cbd5e1;
+        }
+
+        [data-theme="light"] .thresh-step-btn {
+            color: #64748b;
+        }
+
+        [data-theme="light"] .thresh-step-btn:hover {
+            background: #cbd5e1;
+            color: #0f172a;
+        }
+
+        [data-theme="light"] .thresh-btn.reset {
+            background: rgba(0, 0, 0, 0.06);
+            color: #475569;
+            border-color: rgba(0, 0, 0, 0.12);
+        }
+
+        [data-theme="light"] .thresh-btn.reset:hover {
+            background: rgba(0, 0, 0, 0.12);
+            color: #0f172a;
+        }
 
         /* ========== WAVEFORM SECTION ========== */
         .waveform-row {
@@ -1656,7 +1863,7 @@
     <!-- MAIN GRID — Trend history charts -->
     <div class="main-grid">
         <!-- ACCELERATION TREND (Z-Axis, with threshold markers) -->
-        <div class="graph-column">
+        <div class="graph-column" id="primaryGraphColumn">
             <div class="column-header">
                 <span class="column-title">Acceleration Trend &mdash; Z-Axis</span>
                 <div style="display:flex;align-items:center;gap:8px;">
@@ -1664,11 +1871,59 @@
                     <span class="freq-badge" id="freqBadgePrimary">-- Hz</span>
                 </div>
             </div>
+            <!-- Threshold Controls Bar (4 Levels: Max Max, Min Max, Max Min, Min Min) -->
+            <div class="threshold-controls-bar" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+                <div class="thresh-group">
+                    <span class="thresh-pill max-max-pill" title="Max Max: Upper Critical Threshold (+)">Max Max</span>
+                    <div class="thresh-input-wrap">
+                        <input type="number" step="any" id="primaryMaxMaxThresh" class="thresh-input" value="45" title="Set Max Max Threshold" oninput="onThresholdInputChange('primary')">
+                        <div class="thresh-stepper">
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'max_max', 1)" title="Increase Max Max">▲</button>
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'max_max', -1)" title="Decrease Max Max">▼</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill min-max-pill" title="Min Max: Upper Warning Threshold (+)">Min Max</span>
+                    <div class="thresh-input-wrap">
+                        <input type="number" step="any" id="primaryMinMaxThresh" class="thresh-input" value="6.5" title="Set Min Max Threshold" oninput="onThresholdInputChange('primary')">
+                        <div class="thresh-stepper">
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'min_max', 1)" title="Increase Min Max">▲</button>
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'min_max', -1)" title="Decrease Min Max">▼</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill max-min-pill" title="Max Min: Lower Warning Threshold (-)">Max Min</span>
+                    <div class="thresh-input-wrap">
+                        <input type="number" step="any" id="primaryMaxMinThresh" class="thresh-input" value="-6.5" title="Set Max Min Threshold" oninput="onThresholdInputChange('primary')">
+                        <div class="thresh-stepper">
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'max_min', 1)" title="Increase Max Min">▲</button>
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'max_min', -1)" title="Decrease Max Min">▼</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill min-min-pill" title="Min Min: Lower Critical Threshold (-)">Min Min</span>
+                    <div class="thresh-input-wrap">
+                        <input type="number" step="any" id="primaryMinMinThresh" class="thresh-input" value="-20" title="Set Min Min Threshold" oninput="onThresholdInputChange('primary')">
+                        <div class="thresh-stepper">
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'min_min', 1)" title="Increase Min Min">▲</button>
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'min_min', -1)" title="Decrease Min Min">▼</button>
+                        </div>
+                    </div>
+                </div>
+                <button type="button" class="thresh-btn" onclick="saveAndApplyThresholds('primary')" title="Set and Save Thresholds">Set</button>
+                <button type="button" class="thresh-btn reset" onclick="resetThresholdsToDefault('primary')" title="Reset to Defaults">↺</button>
+            </div>
             <div class="chart-wrapper">
                 <canvas id="primaryChart"></canvas>
             </div>
             <div class="threshold-legend" id="primaryLegend">
-                <div class="legend-item"><div class="legend-line over"></div><span>OVER threshold</span></div>
+                <div class="legend-item"><div class="legend-line thresh-max-max"></div><span>Max Max</span></div>
+                <div class="legend-item"><div class="legend-line thresh-min-max"></div><span>Min Max</span></div>
+                <div class="legend-item"><div class="legend-line thresh-max-min"></div><span>Max Min</span></div>
+                <div class="legend-item"><div class="legend-line thresh-min-min"></div><span>Min Min</span></div>
                 <div class="legend-item"><div class="legend-line max"></div><span>Max</span></div>
                 <div class="legend-item"><div class="legend-line avg"></div><span>Avg</span></div>
                 <div class="legend-item"><div class="legend-line min"></div><span>Min</span></div>
@@ -1676,7 +1931,7 @@
         </div>
 
         <!-- DISPLACEMENT TREND (Z-Axis) -->
-        <div class="graph-column">
+        <div class="graph-column" id="secondaryGraphColumn">
             <div class="column-header">
                 <span class="column-title secondary">Displacement Trend &mdash; Z-Axis</span>
                 <div style="display:flex;align-items:center;gap:8px;">
@@ -1684,10 +1939,59 @@
                     <span class="freq-badge" id="freqBadgeSecondary" style="display:none;"></span>
                 </div>
             </div>
+            <!-- Threshold Controls Bar (4 Levels: Max Max, Min Max, Max Min, Min Min) -->
+            <div class="threshold-controls-bar" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+                <div class="thresh-group">
+                    <span class="thresh-pill max-max-pill" title="Max Max: Upper Critical Threshold">Max Max</span>
+                    <div class="thresh-input-wrap">
+                        <input type="number" step="any" id="secondaryMaxMaxThresh" class="thresh-input" value="0.5" title="Set Max Max Threshold" oninput="onThresholdInputChange('secondary')">
+                        <div class="thresh-stepper">
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'max_max', 1)" title="Increase Max Max">▲</button>
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'max_max', -1)" title="Decrease Max Max">▼</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill min-max-pill" title="Min Max: Upper Warning Threshold">Min Max</span>
+                    <div class="thresh-input-wrap">
+                        <input type="number" step="any" id="secondaryMinMaxThresh" class="thresh-input" value="0.2" title="Set Min Max Threshold" oninput="onThresholdInputChange('secondary')">
+                        <div class="thresh-stepper">
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'min_max', 1)" title="Increase Min Max">▲</button>
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'min_max', -1)" title="Decrease Min Max">▼</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill max-min-pill" title="Max Min: Lower Warning Threshold">Max Min</span>
+                    <div class="thresh-input-wrap">
+                        <input type="number" step="any" id="secondaryMaxMinThresh" class="thresh-input" value="0.05" title="Set Max Min Threshold" oninput="onThresholdInputChange('secondary')">
+                        <div class="thresh-stepper">
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'max_min', 1)" title="Increase Max Min">▲</button>
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'max_min', -1)" title="Decrease Max Min">▼</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill min-min-pill" title="Min Min: Lower Critical Threshold">Min Min</span>
+                    <div class="thresh-input-wrap">
+                        <input type="number" step="any" id="secondaryMinMinThresh" class="thresh-input" value="0.0" title="Set Min Min Threshold" oninput="onThresholdInputChange('secondary')">
+                        <div class="thresh-stepper">
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'min_min', 1)" title="Increase Min Min">▲</button>
+                            <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'min_min', -1)" title="Decrease Min Min">▼</button>
+                        </div>
+                    </div>
+                </div>
+                <button type="button" class="thresh-btn" onclick="saveAndApplyThresholds('secondary')" title="Set and Save Thresholds">Set</button>
+                <button type="button" class="thresh-btn reset" onclick="resetThresholdsToDefault('secondary')" title="Reset to Defaults">↺</button>
+            </div>
             <div class="chart-wrapper">
                 <canvas id="secondaryChart"></canvas>
             </div>
-            <div class="threshold-legend">
+            <div class="threshold-legend" id="secondaryLegend">
+                <div class="legend-item"><div class="legend-line thresh-max-max"></div><span>Max Max</span></div>
+                <div class="legend-item"><div class="legend-line thresh-min-max"></div><span>Min Max</span></div>
+                <div class="legend-item"><div class="legend-line thresh-max-min"></div><span>Max Min</span></div>
+                <div class="legend-item"><div class="legend-line thresh-min-min"></div><span>Min Min</span></div>
                 <div class="legend-item"><div class="legend-line max"></div><span>Peak (mm)</span></div>
                 <div class="legend-item"><div class="legend-line avg"></div><span>Avg (mm)</span></div>
                 <div class="legend-item"><div class="legend-line min"></div><span>P2P (mm)</span></div>
@@ -1747,14 +2051,213 @@
         let trendBufferSecondary = [];  // Rolling last 20 avg values — secondary axis
         const TREND_BUFFER_SIZE = 20;
 
-        // ========== THRESHOLD HELPERS ==========
+        // ========== THRESHOLD HELPERS & MANAGEMENT ==========
+        const defaultThresholds = {
+            primary: { max_max: 45.0, min_max: 6.5, max_min: -6.5, min_min: -20.0 },
+            secondary: { max_max: 0.5, min_max: 0.2, max_min: 0.05, min_min: 0.0 }
+        };
+
+        let userThresholds = {
+            primary: { max_max: 45.0, min_max: 6.5, max_min: -6.5, min_min: -20.0 },
+            secondary: { max_max: 0.5, min_max: 0.2, max_min: 0.05, min_min: 0.0 }
+        };
+
+        function _capitalKey(type) {
+            if (type === 'max_max') return 'MaxMax';
+            if (type === 'min_max') return 'MinMax';
+            if (type === 'max_min') return 'MaxMin';
+            if (type === 'min_min') return 'MinMin';
+            return type.charAt(0).toUpperCase() + type.slice(1);
+        }
+
+        function loadStoredThresholds() {
+            try {
+                ['primary', 'secondary'].forEach(target => {
+                    ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
+                        const stored = localStorage.getItem(`cirus_thresh_${target}_${key}`);
+                        if (stored !== null && !isNaN(parseFloat(stored))) {
+                            userThresholds[target][key] = parseFloat(stored);
+                        }
+                    });
+                    if (localStorage.getItem(`cirus_thresh_${target}_max_max`) === null) {
+                        const legacyMax = localStorage.getItem(`cirus_thresh_${target}_max`);
+                        if (legacyMax !== null && !isNaN(parseFloat(legacyMax))) userThresholds[target].max_max = parseFloat(legacyMax);
+                    }
+                    if (localStorage.getItem(`cirus_thresh_${target}_min_min`) === null) {
+                        const legacyMin = localStorage.getItem(`cirus_thresh_${target}_min`);
+                        if (legacyMin !== null && !isNaN(parseFloat(legacyMin))) userThresholds[target].min_min = parseFloat(legacyMin);
+                    }
+                });
+            } catch (e) {
+                console.warn('Could not read localStorage for thresholds:', e);
+            }
+            syncThresholdInputsUI();
+        }
+
+        function syncThresholdInputsUI() {
+            ['primary', 'secondary'].forEach(target => {
+                ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
+                    const input = document.getElementById(target + _capitalKey(key) + 'Thresh');
+                    if (input && document.activeElement !== input) {
+                        input.value = userThresholds[target][key];
+                    }
+                });
+            });
+        }
+
+        function onThresholdInputChange(target) {
+            ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
+                const input = document.getElementById(target + _capitalKey(key) + 'Thresh');
+                if (input) {
+                    const val = parseFloat(input.value);
+                    if (!isNaN(val)) userThresholds[target][key] = val;
+                }
+            });
+
+            applyThresholdLinesToChart(target);
+            saveThresholdsToStorage(target);
+        }
+
+        function stepThreshold(target, type, direction) {
+            const input = document.getElementById(target + _capitalKey(type) + 'Thresh');
+            if (!input) return;
+
+            let cur = parseFloat(input.value);
+            if (isNaN(cur)) cur = defaultThresholds[target][type];
+
+            let step = 1;
+            if (target === 'secondary' || Math.abs(cur) <= 1) step = 0.05;
+            if (Math.abs(cur) <= 0.05) step = 0.005;
+
+            let nextVal = parseFloat((cur + direction * step).toFixed(4));
+            input.value = nextVal;
+            userThresholds[target][type] = nextVal;
+
+            applyThresholdLinesToChart(target);
+            saveThresholdsToStorage(target);
+        }
+
+        function applyThresholdLinesToChart(target) {
+            const chart = target === 'primary' ? primaryChart : secondaryChart;
+            if (!chart || !chart.options || !chart.options.plugins || !chart.options.plugins.annotation) return;
+
+            const ann = chart.options.plugins.annotation.annotations;
+            if (!ann) return;
+
+            const t = userThresholds[target];
+
+            if (ann.max_max_line) {
+                ann.max_max_line.yMin = t.max_max;
+                ann.max_max_line.yMax = t.max_max;
+                if (ann.max_max_line.label) ann.max_max_line.label.content = 'Max Max: ' + t.max_max;
+            }
+            if (ann.min_max_line) {
+                ann.min_max_line.yMin = t.min_max;
+                ann.min_max_line.yMax = t.min_max;
+                if (ann.min_max_line.label) ann.min_max_line.label.content = 'Min Max: ' + t.min_max;
+            }
+            if (ann.max_min_line) {
+                ann.max_min_line.yMin = t.max_min;
+                ann.max_min_line.yMax = t.max_min;
+                if (ann.max_min_line.label) ann.max_min_line.label.content = 'Max Min: ' + t.max_min;
+            }
+            if (ann.min_min_line) {
+                ann.min_min_line.yMin = t.min_min;
+                ann.min_min_line.yMax = t.min_min;
+                if (ann.min_min_line.label) ann.min_min_line.label.content = 'Min Min: ' + t.min_min;
+            }
+
+            chart.update('none');
+        }
+
+        function saveThresholdsToStorage(target) {
+            try {
+                ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
+                    localStorage.setItem(`cirus_thresh_${target}_${key}`, userThresholds[target][key]);
+                });
+            } catch (e) {}
+        }
+
+        function saveAndApplyThresholds(target) {
+            onThresholdInputChange(target);
+            saveThresholdsToStorage(target);
+            syncThresholdsToBackend(target);
+            const t = userThresholds[target];
+            const name = target === 'primary' ? 'Acceleration' : 'Displacement';
+            showToast(`✅ ${name} thresholds saved (MaxMax: ${t.max_max}, MinMax: ${t.min_max}, MaxMin: ${t.max_min}, MinMin: ${t.min_min})`);
+        }
+
+        function resetThresholdsToDefault(target) {
+            ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
+                userThresholds[target][key] = defaultThresholds[target][key];
+            });
+            syncThresholdInputsUI();
+            applyThresholdLinesToChart(target);
+            saveThresholdsToStorage(target);
+            syncThresholdsToBackend(target);
+            showToast(`↺ Reset ${target === 'primary' ? 'Acceleration' : 'Displacement'} thresholds to defaults`);
+        }
+
+        async function syncThresholdsToBackend(target) {
+            const axisKey = 'z_axis';
+            const metricKey = target === 'primary' ? 'acceleration' : 'displacement';
+            const t = userThresholds[target];
+            try {
+                await fetch('/api/thresholds', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        axis: axisKey,
+                        metric: metricKey,
+                        max_max: t.max_max,
+                        min_max: t.min_max,
+                        max_min: t.max_min,
+                        min_min: t.min_min
+                    })
+                });
+            } catch (err) {
+                console.warn('Backend threshold sync failed (using local UI values):', err);
+            }
+        }
+
         async function loadThresholds() {
             try {
                 const response = await fetch('/api/thresholds');
                 thresholds = await response.json();
                 console.log('Thresholds loaded:', thresholds);
-                // Apply real threshold values to chart annotations now that they are loaded
-                updateThresholdLines(currentMetric);
+                if (thresholds && thresholds.z_axis) {
+                    if (thresholds.z_axis.acceleration) {
+                        const za = thresholds.z_axis.acceleration;
+                        defaultThresholds.primary.max_max = za.over_positive;
+                        defaultThresholds.primary.min_max = za.under_positive;
+                        defaultThresholds.primary.max_min = za.under_negative;
+                        defaultThresholds.primary.min_min = za.over_negative;
+
+                        ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
+                            if (localStorage.getItem(`cirus_thresh_primary_${key}`) === null) {
+                                const mapKey = key === 'max_max' ? 'over_positive' : key === 'min_max' ? 'under_positive' : key === 'max_min' ? 'under_negative' : 'over_negative';
+                                userThresholds.primary[key] = za[mapKey];
+                            }
+                        });
+                    }
+                    if (thresholds.z_axis.displacement) {
+                        const zd = thresholds.z_axis.displacement;
+                        defaultThresholds.secondary.max_max = zd.over_positive;
+                        defaultThresholds.secondary.min_max = zd.under_positive;
+                        defaultThresholds.secondary.max_min = zd.under_negative;
+                        defaultThresholds.secondary.min_min = zd.over_negative;
+
+                        ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
+                            if (localStorage.getItem(`cirus_thresh_secondary_${key}`) === null) {
+                                const mapKey = key === 'max_max' ? 'over_positive' : key === 'min_max' ? 'under_positive' : key === 'max_min' ? 'under_negative' : 'over_negative';
+                                userThresholds.secondary[key] = zd[mapKey];
+                            }
+                        });
+                    }
+                }
+                syncThresholdInputsUI();
+                applyThresholdLinesToChart('primary');
+                applyThresholdLinesToChart('secondary');
             } catch (error) {
                 console.error('Failed to load thresholds:', error);
             }
@@ -1902,40 +2405,87 @@
                                     yMin: 0,
                                     yMax: 0,
                                     borderColor: '#64748b',
-                                    borderWidth: 3,
+                                    borderWidth: 1.5,
+                                    borderDash: [3, 3],
                                     label: { 
                                         content: '0', 
                                         enabled: true, 
-                                        color: '#64748b',
-                                        position: 'start'
+                                        display: true,
+                                        color: '#94a3b8',
+                                        position: 'start',
+                                        font: { size: 9 }
                                     }
                                 },
-                                over_pos: {
+                                max_max_line: {
                                     type: 'line',
-                                    yMin: 70,
-                                    yMax: 70,
-                                    borderColor: darkColors.over,
+                                    yMin: userThresholds.primary.max_max,
+                                    yMax: userThresholds.primary.max_max,
+                                    borderColor: '#ef4444',
                                     borderWidth: 2,
-                                    borderDash: [5, 5],
+                                    borderDash: [6, 4],
                                     label: { 
-                                        content: 'OVER', 
+                                        content: 'Max Max: ' + userThresholds.primary.max_max, 
                                         enabled: true, 
-                                        color: darkColors.over,
-                                        position: 'end'
+                                        display: true,
+                                        backgroundColor: 'rgba(239, 68, 68, 0.85)',
+                                        color: '#ffffff',
+                                        font: { size: 10, weight: 'bold' },
+                                        position: 'end',
+                                        padding: 4
                                     }
                                 },
-                                over_neg: {
+                                min_max_line: {
                                     type: 'line',
-                                    yMin: -70,
-                                    yMax: -70,
-                                    borderColor: darkColors.over,
+                                    yMin: userThresholds.primary.min_max,
+                                    yMax: userThresholds.primary.min_max,
+                                    borderColor: '#f97316',
                                     borderWidth: 2,
-                                    borderDash: [5, 5],
+                                    borderDash: [5, 4],
                                     label: { 
-                                        content: 'OVER', 
+                                        content: 'Min Max: ' + userThresholds.primary.min_max, 
                                         enabled: true, 
-                                        color: darkColors.over,
-                                        position: 'end'
+                                        display: true,
+                                        backgroundColor: 'rgba(249, 115, 22, 0.85)',
+                                        color: '#ffffff',
+                                        font: { size: 10, weight: 'bold' },
+                                        position: 'end',
+                                        padding: 4
+                                    }
+                                },
+                                max_min_line: {
+                                    type: 'line',
+                                    yMin: userThresholds.primary.max_min,
+                                    yMax: userThresholds.primary.max_min,
+                                    borderColor: '#f59e0b',
+                                    borderWidth: 2,
+                                    borderDash: [5, 4],
+                                    label: { 
+                                        content: 'Max Min: ' + userThresholds.primary.max_min, 
+                                        enabled: true, 
+                                        display: true,
+                                        backgroundColor: 'rgba(245, 158, 11, 0.85)',
+                                        color: '#ffffff',
+                                        font: { size: 10, weight: 'bold' },
+                                        position: 'end',
+                                        padding: 4
+                                    }
+                                },
+                                min_min_line: {
+                                    type: 'line',
+                                    yMin: userThresholds.primary.min_min,
+                                    yMax: userThresholds.primary.min_min,
+                                    borderColor: '#dc2626',
+                                    borderWidth: 2,
+                                    borderDash: [6, 4],
+                                    label: { 
+                                        content: 'Min Min: ' + userThresholds.primary.min_min, 
+                                        enabled: true, 
+                                        display: true,
+                                        backgroundColor: 'rgba(220, 38, 38, 0.85)',
+                                        color: '#ffffff',
+                                        font: { size: 10, weight: 'bold' },
+                                        position: 'end',
+                                        padding: 4
                                     }
                                 }
                             }
@@ -1991,8 +2541,88 @@
                                     yMin: 0,
                                     yMax: 0,
                                     borderColor: '#64748b',
-                                    borderWidth: 1,
-                                    borderDash: [4, 4]
+                                    borderWidth: 1.5,
+                                    borderDash: [3, 3],
+                                    label: { 
+                                        content: '0', 
+                                        enabled: true, 
+                                        display: true,
+                                        color: '#94a3b8',
+                                        position: 'start',
+                                        font: { size: 9 }
+                                    }
+                                },
+                                max_max_line: {
+                                    type: 'line',
+                                    yMin: userThresholds.secondary.max_max,
+                                    yMax: userThresholds.secondary.max_max,
+                                    borderColor: '#ef4444',
+                                    borderWidth: 2,
+                                    borderDash: [6, 4],
+                                    label: { 
+                                        content: 'Max Max: ' + userThresholds.secondary.max_max, 
+                                        enabled: true, 
+                                        display: true,
+                                        backgroundColor: 'rgba(239, 68, 68, 0.85)',
+                                        color: '#ffffff',
+                                        font: { size: 10, weight: 'bold' },
+                                        position: 'end',
+                                        padding: 4
+                                    }
+                                },
+                                min_max_line: {
+                                    type: 'line',
+                                    yMin: userThresholds.secondary.min_max,
+                                    yMax: userThresholds.secondary.min_max,
+                                    borderColor: '#f97316',
+                                    borderWidth: 2,
+                                    borderDash: [5, 4],
+                                    label: { 
+                                        content: 'Min Max: ' + userThresholds.secondary.min_max, 
+                                        enabled: true, 
+                                        display: true,
+                                        backgroundColor: 'rgba(249, 115, 22, 0.85)',
+                                        color: '#ffffff',
+                                        font: { size: 10, weight: 'bold' },
+                                        position: 'end',
+                                        padding: 4
+                                    }
+                                },
+                                max_min_line: {
+                                    type: 'line',
+                                    yMin: userThresholds.secondary.max_min,
+                                    yMax: userThresholds.secondary.max_min,
+                                    borderColor: '#f59e0b',
+                                    borderWidth: 2,
+                                    borderDash: [5, 4],
+                                    label: { 
+                                        content: 'Max Min: ' + userThresholds.secondary.max_min, 
+                                        enabled: true, 
+                                        display: true,
+                                        backgroundColor: 'rgba(245, 158, 11, 0.85)',
+                                        color: '#ffffff',
+                                        font: { size: 10, weight: 'bold' },
+                                        position: 'end',
+                                        padding: 4
+                                    }
+                                },
+                                min_min_line: {
+                                    type: 'line',
+                                    yMin: userThresholds.secondary.min_min,
+                                    yMax: userThresholds.secondary.min_min,
+                                    borderColor: '#dc2626',
+                                    borderWidth: 2,
+                                    borderDash: [6, 4],
+                                    label: { 
+                                        content: 'Min Min: ' + userThresholds.secondary.min_min, 
+                                        enabled: true, 
+                                        display: true,
+                                        backgroundColor: 'rgba(220, 38, 38, 0.85)',
+                                        color: '#ffffff',
+                                        font: { size: 10, weight: 'bold' },
+                                        position: 'end',
+                                        padding: 4
+                                    }
                                 }
                             }
                         }
@@ -2212,23 +2842,24 @@
 
         // ========== THRESHOLD LINES ==========
         function updateThresholdLines(metric) {
-            if (!thresholds) return;
-            // Correct path: thresholds.z_axis[metric], NOT thresholds[metric]
-            const thresh = thresholds.z_axis && thresholds.z_axis[metric];
-            if (!thresh) return;
-            const thresholdLines = getThresholdLines(metric);
-            
-            // Update primary threshold line positions
-            if (thresholdLines) {
-                primaryChart.options.plugins.annotation.annotations.over_pos.yMin = thresholdLines.over_positive;
-                primaryChart.options.plugins.annotation.annotations.over_pos.yMax = thresholdLines.over_positive;
-                
-                primaryChart.options.plugins.annotation.annotations.over_neg.yMin = thresholdLines.over_negative;
-                primaryChart.options.plugins.annotation.annotations.over_neg.yMax = thresholdLines.over_negative;
+            if (thresholds && thresholds.z_axis && thresholds.z_axis[metric]) {
+                const zt = thresholds.z_axis[metric];
+                defaultThresholds.primary.max_max = zt.over_positive;
+                defaultThresholds.primary.min_max = zt.under_positive;
+                defaultThresholds.primary.max_min = zt.under_negative;
+                defaultThresholds.primary.min_min = zt.over_negative;
+
+                ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
+                    if (localStorage.getItem(`cirus_thresh_primary_${key}`) === null) {
+                        const mapKey = key === 'max_max' ? 'over_positive' : key === 'min_max' ? 'under_positive' : key === 'max_min' ? 'under_negative' : 'over_negative';
+                        userThresholds.primary[key] = zt[mapKey];
+                    }
+                });
             }
 
-            primaryChart.update('none');
-            secondaryChart.update('none');
+            syncThresholdInputsUI();
+            applyThresholdLinesToChart('primary');
+            applyThresholdLinesToChart('secondary');
         }
 
         // ========== USER INTERACTIONS ==========
@@ -2459,10 +3090,24 @@
             fetchStatus();
         });
 
+        socket.on('event_logged', (eventData) => {
+            console.log('📁 Event auto-logged:', eventData);
+            showToast(`📁 Event Created: ${eventData.fault_type}`, 6000);
+            sessionAnomalyCount++;
+            const _badge = document.getElementById('anomalyBadge');
+            if (_badge) { _badge.textContent = sessionAnomalyCount; _badge.classList.add('visible'); }
+            const modal = document.getElementById('eventsModal');
+            if (modal && modal.style.display === 'block') {
+                fetchEvents();
+            }
+        });
+
         // ========== INITIALIZATION ==========
         document.addEventListener('DOMContentLoaded', () => {
+            loadStoredThresholds();
             initCharts();
             initTheme();
+            loadThresholds();
             updateThresholdLines(currentMetric);
             loadAvailableDates();
 
