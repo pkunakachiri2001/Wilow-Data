@@ -190,11 +190,12 @@ def _apply_reading_state(
     data_json=None,
     emit_sockets: bool = True,
     trigger_row: list | None = None,
+    create_events: bool = True,
 ):
     """
     Update latest_kpi and latest_status atomically from a parsed telemetry row,
     evaluate 4-level frontend thresholds across axes, emit Socket.IO notifications,
-    and trigger automatic event creation in Neon when breached.
+    and optionally trigger automatic event creation in Neon when breached.
     Returns (alert_status, alert_axis).
     """
     global _last_seen_epoch, _last_data_received_ts, _db_connected
@@ -261,7 +262,8 @@ def _apply_reading_state(
             'threshold_value': violation['threshold_value'],
             'ai_confidence': None,
         })
-        trigger_auto_event_creation(fault_type, event_meta=event_meta, trigger_row=trigger_row)
+        if create_events:
+            trigger_auto_event_creation(fault_type, event_meta=event_meta, trigger_row=trigger_row)
 
     return alert_status, alert_axis
 
@@ -330,6 +332,7 @@ def _sync_latest_from_db(force: bool = False, emit_sockets: bool = True):
             data_json=None,
             emit_sockets=(is_new_row and emit_sockets),
             trigger_row=trigger_row,
+            create_events=False,
         )
         return is_new_row
     except Exception as e:
@@ -394,6 +397,7 @@ def _init_db_and_start_watcher():
                     ts = _thresholds_updated_at
                 payload['configured'] = ts > 0.0
                 payload['updated_at'] = ts
+                payload['read_only'] = True
                 socketio.emit('thresholds_updated', payload)
 
             now = time.time()
@@ -693,37 +697,24 @@ def api_latest_kpi():
 
 @app.route("/api/thresholds", methods=["GET", "POST"])
 def api_thresholds():
-    global THRESHOLDS, _thresholds_updated_at
     if request.method == "POST":
-        try:
-            data = request.get_json(silent=True) or {}
-            with thresh_lock:
-                vc.apply_threshold_payload(THRESHOLDS, data)
-                payload = copy.deepcopy(THRESHOLDS)
-                _thresholds_updated_at = time.time()
-                ts = _thresholds_updated_at
+        return jsonify({
+            "status": "error",
+            "read_only": True,
+            "message": "Thresholds are read-only on the web dashboard; update them on the Local Hub (RPi).",
+        }), 403
 
-            if db.is_configured():
-                saved_ts = db.save_thresholds(payload, ts)
-                if saved_ts:
-                    _thresholds_updated_at = saved_ts
-                    ts = saved_ts
-
-            _clear_axis_cache()
-            _recheck_latest_status_thresholds()
-            emit_payload = copy.deepcopy(payload)
-            emit_payload['configured'] = True
-            emit_payload['updated_at'] = ts
-            socketio.emit('thresholds_updated', emit_payload)
-            return jsonify({"status": "success", "thresholds": payload, "configured": True, "updated_at": ts})
-        except Exception as e:
-            return jsonify({"status": "error", "message": str(e)}), 400
+    try:
+        _load_thresholds_from_db()
+    except Exception as e:
+        print(f"[CLOUD THRESHOLDS WARN] {e}", flush=True)
 
     with thresh_lock:
         payload = copy.deepcopy(THRESHOLDS)
         ts = _thresholds_updated_at
     payload['configured'] = ts > 0.0
     payload['updated_at'] = ts
+    payload['read_only'] = True
     return jsonify(payload)
 
 

@@ -504,6 +504,14 @@
             padding: 12px 25px 25px;
         }
 
+        .main-grid.cloud-single-graph {
+            grid-template-columns: 1fr;
+        }
+
+        .main-grid.cloud-single-graph .chart-wrapper {
+            height: 400px;
+        }
+
         .graph-column {
             background: rgba(30, 41, 59, 0.6);
             backdrop-filter: blur(10px);
@@ -751,6 +759,53 @@
         [data-theme="light"] .threshold-controls-bar {
             background: #e2e8f0;
             border-color: #cbd5e1;
+        }
+
+        .threshold-readonly-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            padding: 7px 12px;
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            flex-wrap: wrap;
+            user-select: none;
+            cursor: default !important;
+        }
+
+        .thresh-ro-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: #e2e8f0;
+            padding: 2px 7px;
+            border-radius: 4px;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .thresh-ro-note {
+            margin-left: auto;
+            font-size: 11px;
+            font-weight: 600;
+            color: #94a3b8;
+        }
+
+        [data-theme="light"] .threshold-readonly-bar {
+            background: #e2e8f0;
+            border-color: #cbd5e1;
+        }
+
+        [data-theme="light"] .thresh-ro-val {
+            background: #ffffff;
+            color: #0f172a;
+            border-color: #cbd5e1;
+        }
+
+        [data-theme="light"] .thresh-ro-note {
+            color: #475569;
         }
 
         [data-theme="light"] .thresh-input-wrap {
@@ -1841,7 +1896,8 @@
     </section>
 
     <!-- MAIN GRID — Trend history charts -->
-    <div class="main-grid">
+    <div class="main-grid{% if is_cloud %} cloud-single-graph{% endif %}">
+        {% if not is_cloud %}
         <!-- ACCELERATION TREND (Z-Axis, with threshold markers) -->
         <div class="graph-column" id="primaryGraphColumn">
             <div class="column-header">
@@ -1909,16 +1965,46 @@
                 <div class="legend-item"><div class="legend-line min"></div><span>Min</span></div>
             </div>
         </div>
+        {% endif %}
 
-        <!-- DISPLACEMENT TREND (Z-Axis) -->
+        <!-- DISPLACEMENT TREND -->
         <div class="graph-column" id="secondaryGraphColumn">
             <div class="column-header">
-                <span class="column-title secondary">Displacement Trend &mdash; Z-Axis</span>
+                <span class="column-title secondary" id="secondaryChartTitle">Displacement Trend &mdash; Z-Axis</span>
                 <div style="display:flex;align-items:center;gap:8px;">
+                    {% if is_cloud %}
+                    <div class="kpi-axis-selector" role="radiogroup" aria-label="Displacement chart axis" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+                        <button type="button" class="kpi-axis-btn" aria-pressed="true" onclick="setDispChartAxis('Z', this)">Z</button>
+                        <button type="button" class="kpi-axis-btn" aria-pressed="false" onclick="setDispChartAxis('X', this)">X</button>
+                        <button type="button" class="kpi-axis-btn" aria-pressed="false" onclick="setDispChartAxis('Y', this)">Y</button>
+                    </div>
+                    {% endif %}
                     <span class="trend-badge" id="trendBadgeSecondary"></span>
-                    <span class="freq-badge" id="freqBadgeSecondary" style="display:none;"></span>
+                    <span class="freq-badge" id="freqBadgeSecondary"{% if not is_cloud %} style="display:none;"{% endif %}>-- Hz</span>
                 </div>
             </div>
+            {% if is_cloud %}
+            <!-- Read-Only Threshold Display (Managed from Local RPi via Neon) -->
+            <div class="threshold-readonly-bar" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+                <div class="thresh-group">
+                    <span class="thresh-pill max-max-pill" title="Max Max: Upper Critical Threshold">Max Max</span>
+                    <span class="thresh-ro-val" id="roSecondaryMaxMax">Unset</span>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill min-max-pill" title="Min Max: Upper Warning Threshold">Min Max</span>
+                    <span class="thresh-ro-val" id="roSecondaryMinMax">Unset</span>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill max-min-pill" title="Max Min: Lower Warning Threshold">Max Min</span>
+                    <span class="thresh-ro-val" id="roSecondaryMaxMin">Unset</span>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill min-min-pill" title="Min Min: Lower Critical Threshold">Min Min</span>
+                    <span class="thresh-ro-val" id="roSecondaryMinMin">Unset</span>
+                </div>
+                <span class="thresh-ro-note">🔒 Read-only (Set on Local RPi)</span>
+            </div>
+            {% else %}
             <!-- Threshold Controls Bar (4 Levels: Max Max, Min Max, Max Min, Min Min) -->
             <div class="threshold-controls-bar" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
                 <div class="thresh-group">
@@ -1964,6 +2050,7 @@
                 <button type="button" class="thresh-btn" onclick="saveAndApplyThresholds('secondary')" title="Set and Save Thresholds">Set</button>
                 <button type="button" class="thresh-btn reset" onclick="clearThresholds('secondary')" title="Clear Threshold Lines">Clear</button>
             </div>
+            {% endif %}
             <div class="chart-wrapper">
                 <canvas id="secondaryChart"></canvas>
             </div>
@@ -2015,6 +2102,8 @@
             console.error('Socket.IO failed to load. Live updates will be disabled.');
         }
         let currentMetric = 'acceleration';
+        let dispChartAxis = 'Z';
+        const IS_CLOUD = "{{ 'true' if is_cloud else 'false' }}" === "true";
         // KPI axis state (per-card)
         const kpiAxis = { displacement: 'Z', velocity: 'Z', acceleration: 'Z' };
         let thresholds = null;
@@ -2080,6 +2169,38 @@
             return Number.isFinite(n) ? n : null;
         }
 
+        function _syncSecondaryThresholdsForAxis() {
+            const axisKey = `${dispChartAxis.toLowerCase()}_axis`;
+            if (thresholds && thresholds[axisKey] && thresholds[axisKey].displacement) {
+                const td = thresholds[axisKey].displacement;
+                userThresholds.secondary.max_max = _parseOptNum(td.over_positive);
+                userThresholds.secondary.min_max = _parseOptNum(td.under_positive);
+                userThresholds.secondary.max_min = _parseOptNum(td.under_negative);
+                userThresholds.secondary.min_min = _parseOptNum(td.over_negative);
+            } else {
+                ['max_max', 'min_max', 'max_min', 'min_min'].forEach(k => {
+                    userThresholds.secondary[k] = null;
+                });
+            }
+            syncReadOnlyThresholdDisplay();
+            applyThresholdLinesToChart('secondary');
+        }
+
+        function syncReadOnlyThresholdDisplay() {
+            const map = [
+                ['roSecondaryMaxMax', 'max_max'],
+                ['roSecondaryMinMax', 'min_max'],
+                ['roSecondaryMaxMin', 'max_min'],
+                ['roSecondaryMinMin', 'min_min']
+            ];
+            map.forEach(([elId, key]) => {
+                const el = document.getElementById(elId);
+                if (!el) return;
+                const val = userThresholds.secondary[key];
+                el.textContent = (val !== null && val !== undefined && Number.isFinite(val)) ? `${val} mm` : 'Unset';
+            });
+        }
+
         function _applyServerThresholdsObj(serverThresholds) {
             if (!serverThresholds || !serverThresholds.z_axis) return;
             thresholds = serverThresholds;
@@ -2089,19 +2210,12 @@
                 userThresholds.primary.min_max = _parseOptNum(za.under_positive);
                 userThresholds.primary.max_min = _parseOptNum(za.under_negative);
                 userThresholds.primary.min_min = _parseOptNum(za.over_negative);
-                saveThresholdsToStorage('primary');
+                if (!IS_CLOUD) saveThresholdsToStorage('primary');
             }
-            if (serverThresholds.z_axis.displacement) {
-                const zd = serverThresholds.z_axis.displacement;
-                userThresholds.secondary.max_max = _parseOptNum(zd.over_positive);
-                userThresholds.secondary.min_max = _parseOptNum(zd.under_positive);
-                userThresholds.secondary.max_min = _parseOptNum(zd.under_negative);
-                userThresholds.secondary.min_min = _parseOptNum(zd.over_negative);
-                saveThresholdsToStorage('secondary');
-            }
+            _syncSecondaryThresholdsForAxis();
+            if (!IS_CLOUD && dispChartAxis === 'Z') saveThresholdsToStorage('secondary');
             syncThresholdInputsUI();
             applyThresholdLinesToChart('primary');
-            applyThresholdLinesToChart('secondary');
         }
 
         // ========== THRESHOLD HELPERS & MANAGEMENT (FRONTEND LINES = SINGLE SOURCE OF TRUTH) ==========
@@ -2151,6 +2265,7 @@
                     }
                 });
             });
+            syncReadOnlyThresholdDisplay();
         }
 
         function _applyInputsToChartAndStorage(target) {
@@ -2175,11 +2290,13 @@
         }
 
         function onThresholdInputChange(target) {
+            if (IS_CLOUD) return;
             _applyInputsToChartAndStorage(target);
             scheduleThresholdSync(target);
         }
 
         function stepThreshold(target, type, direction) {
+            if (IS_CLOUD) return;
             const input = document.getElementById(target + _capitalKey(type) + 'Thresh');
             if (!input) return;
 
@@ -2250,6 +2367,7 @@
         }
 
         async function saveAndApplyThresholds(target) {
+            if (IS_CLOUD) return;
             if (_threshSyncTimers[target]) {
                 clearTimeout(_threshSyncTimers[target]);
                 _threshSyncTimers[target] = null;
@@ -2263,6 +2381,7 @@
         }
 
         async function clearThresholds(target) {
+            if (IS_CLOUD) return;
             if (_threshSyncTimers[target]) {
                 clearTimeout(_threshSyncTimers[target]);
                 _threshSyncTimers[target] = null;
@@ -2279,6 +2398,7 @@
         }
 
         async function syncThresholdsToBackend(target) {
+            if (IS_CLOUD) return;
             const axisKey = 'z_axis';
             const metricKey = target === 'primary' ? 'acceleration' : 'displacement';
             const t = userThresholds[target];
@@ -2310,6 +2430,21 @@
                 if (!response.ok) return;
                 const data = await response.json();
                 console.log('Thresholds loaded from server:', data);
+                if (IS_CLOUD) {
+                    if (data && data.configured) {
+                        _applyServerThresholdsObj(data);
+                    } else {
+                        thresholds = data;
+                        ['primary', 'secondary'].forEach(tgt => {
+                            ['max_max', 'min_max', 'max_min', 'min_min'].forEach(k => {
+                                userThresholds[tgt][k] = null;
+                            });
+                        });
+                        syncReadOnlyThresholdDisplay();
+                        applyThresholdLinesToChart('secondary');
+                    }
+                    return;
+                }
                 if (data && data.configured) {
                     _applyServerThresholdsObj(data);
                 } else {
@@ -2456,8 +2591,10 @@
                 alert: '#ef4444'
             };
 
-            // Primary Chart (Z-axis with thresholds) - Shows 3 LINES
-            primaryChart = new Chart(document.getElementById('primaryChart'), {
+            // Primary Chart (Z-axis Acceleration, local hub only) - Shows 3 LINES
+            const primaryEl = document.getElementById('primaryChart');
+            if (primaryEl) {
+            primaryChart = new Chart(primaryEl, {
                 type: 'line',
                 data: {
                     datasets: [
@@ -2604,6 +2741,7 @@
                     }
                 }
             });
+            }
 
             // Secondary Chart (Displacement Trend) - Shows 3 LINES + Alerts
             secondaryChart = new Chart(document.getElementById('secondaryChart'), {
@@ -2779,7 +2917,7 @@
 
         // ========== UPDATE FUNCTIONS ==========
         function updatePrimaryChart(data) {
-            if (!data || !data.datetime_labels) return;
+            if (!primaryChart || !data || !data.datetime_labels) return;
 
             const dates = data.datetime_labels.map(dt => new Date(dt));
 
@@ -2973,25 +3111,42 @@
             requestGraphData();
         }
 
+        function setDispChartAxis(axis, btn) {
+            dispChartAxis = axis;
+            if (btn) {
+                btn.closest('.kpi-axis-selector').querySelectorAll('.kpi-axis-btn')
+                   .forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+            }
+            const titleEl = document.getElementById('secondaryChartTitle');
+            if (titleEl) {
+                titleEl.textContent = `Displacement Trend \u2014 ${axis}-Axis`;
+            }
+            trendBufferSecondary = [];
+            _syncSecondaryThresholdsForAxis();
+            fetchDisplacementChart();
+        }
+
         // ========== DATA REQUESTS ==========
         function requestGraphData() {
-            // Primary chart (Acceleration Trend): via Socket.IO
-            const reqDataPrimary = { axis: 'Z', metric: currentMetric };
-            if (filterStart && filterEnd) {
-                reqDataPrimary.start_time = filterStart;
-                reqDataPrimary.end_time   = filterEnd;
-            } else {
-                reqDataPrimary.minutes = filterMinutes;
+            // Primary chart (Acceleration Trend, local hub only): via Socket.IO
+            if (!IS_CLOUD && primaryChart) {
+                const reqDataPrimary = { axis: 'Z', metric: currentMetric };
+                if (filterStart && filterEnd) {
+                    reqDataPrimary.start_time = filterStart;
+                    reqDataPrimary.end_time   = filterEnd;
+                } else {
+                    reqDataPrimary.minutes = filterMinutes;
+                }
+                socket.emit('request_axis_data', reqDataPrimary);
             }
-            socket.emit('request_axis_data', reqDataPrimary);
 
-            // Secondary chart (Displacement Trend): via REST to avoid axis:'Z' collision
+            // Displacement Trend chart (Z/X/Y selectable on cloud): via REST
             fetchDisplacementChart();
         }
 
         async function fetchDisplacementChart() {
             try {
-                let url = '/api/axis_data?axis=Z&metric=displacement';
+                let url = `/api/axis_data?axis=${dispChartAxis}&metric=displacement`;
                 if (filterStart && filterEnd) {
                     url += `&start_time=${filterStart}&end_time=${filterEnd}`;
                 } else {
@@ -3046,7 +3201,6 @@
         let filterEnd = null;
         // On cloud: always locked to 10 minutes. On local: controlled by the dropdown.
         let filterMinutes = 10;
-        const IS_CLOUD = "{{ 'true' if is_cloud else 'false' }}" === "true";
         
         function setFilterMode(mode) {
             filterMode = mode;
@@ -3251,12 +3405,12 @@
 
         socket.on('thresholds_updated', (serverThresholds) => {
             _applyServerThresholdsObj(serverThresholds);
-            showToast('🔄 Thresholds synced from server', 3000);
+            showToast(IS_CLOUD ? '🔄 Thresholds updated from Local RPi' : '🔄 Thresholds synced from server', 3000);
         });
 
         // ========== INITIALIZATION ==========
         document.addEventListener('DOMContentLoaded', () => {
-            loadStoredThresholds();
+            if (!IS_CLOUD) loadStoredThresholds();
             initCharts();
             initTheme();
             updateHealthScore();
