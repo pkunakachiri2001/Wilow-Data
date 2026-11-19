@@ -504,14 +504,6 @@
             padding: 12px 25px 25px;
         }
 
-        .main-grid.cloud-single-graph {
-            grid-template-columns: 1fr;
-        }
-
-        .main-grid.cloud-single-graph .chart-wrapper {
-            height: 400px;
-        }
-
         .graph-column {
             background: rgba(30, 41, 59, 0.6);
             backdrop-filter: blur(10px);
@@ -1896,8 +1888,7 @@
     </section>
 
     <!-- MAIN GRID — Trend history charts -->
-    <div class="main-grid{% if is_cloud %} cloud-single-graph{% endif %}">
-        {% if not is_cloud %}
+    <div class="main-grid">
         <!-- ACCELERATION TREND (Z-Axis, with threshold markers) -->
         <div class="graph-column" id="primaryGraphColumn">
             <div class="column-header">
@@ -1907,6 +1898,28 @@
                     <span class="freq-badge" id="freqBadgePrimary">-- Hz</span>
                 </div>
             </div>
+            {% if is_cloud %}
+            <!-- Read-Only Threshold Display (Managed from Local RPi via Neon) -->
+            <div class="threshold-readonly-bar" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+                <div class="thresh-group">
+                    <span class="thresh-pill max-max-pill" title="Max Max: Upper Critical Threshold (+)">Max Max</span>
+                    <span class="thresh-ro-val" id="roPrimaryMaxMax">Unset</span>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill min-max-pill" title="Min Max: Upper Warning Threshold (+)">Min Max</span>
+                    <span class="thresh-ro-val" id="roPrimaryMinMax">Unset</span>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill max-min-pill" title="Max Min: Lower Warning Threshold (-)">Max Min</span>
+                    <span class="thresh-ro-val" id="roPrimaryMaxMin">Unset</span>
+                </div>
+                <div class="thresh-group">
+                    <span class="thresh-pill min-min-pill" title="Min Min: Lower Critical Threshold (-)">Min Min</span>
+                    <span class="thresh-ro-val" id="roPrimaryMinMin">Unset</span>
+                </div>
+                <span class="thresh-ro-note">🔒 Read-only (Set on Local RPi)</span>
+            </div>
+            {% else %}
             <!-- Threshold Controls Bar (4 Levels: Max Max, Min Max, Max Min, Min Min) -->
             <div class="threshold-controls-bar" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
                 <div class="thresh-group">
@@ -1952,6 +1965,7 @@
                 <button type="button" class="thresh-btn" onclick="saveAndApplyThresholds('primary')" title="Set and Save Thresholds">Set</button>
                 <button type="button" class="thresh-btn reset" onclick="clearThresholds('primary')" title="Clear Threshold Lines">Clear</button>
             </div>
+            {% endif %}
             <div class="chart-wrapper">
                 <canvas id="primaryChart"></canvas>
             </div>
@@ -1965,22 +1979,14 @@
                 <div class="legend-item"><div class="legend-line min"></div><span>Min</span></div>
             </div>
         </div>
-        {% endif %}
 
-        <!-- DISPLACEMENT TREND -->
+        <!-- DISPLACEMENT TREND (Z-Axis) -->
         <div class="graph-column" id="secondaryGraphColumn">
             <div class="column-header">
-                <span class="column-title secondary" id="secondaryChartTitle">Displacement Trend &mdash; Z-Axis</span>
+                <span class="column-title secondary">Displacement Trend &mdash; Z-Axis</span>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    {% if is_cloud %}
-                    <div class="kpi-axis-selector" role="radiogroup" aria-label="Displacement chart axis" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
-                        <button type="button" class="kpi-axis-btn" aria-pressed="true" onclick="setDispChartAxis('Z', this)">Z</button>
-                        <button type="button" class="kpi-axis-btn" aria-pressed="false" onclick="setDispChartAxis('X', this)">X</button>
-                        <button type="button" class="kpi-axis-btn" aria-pressed="false" onclick="setDispChartAxis('Y', this)">Y</button>
-                    </div>
-                    {% endif %}
                     <span class="trend-badge" id="trendBadgeSecondary"></span>
-                    <span class="freq-badge" id="freqBadgeSecondary"{% if not is_cloud %} style="display:none;"{% endif %}>-- Hz</span>
+                    <span class="freq-badge" id="freqBadgeSecondary" style="display:none;"></span>
                 </div>
             </div>
             {% if is_cloud %}
@@ -2187,13 +2193,26 @@
         }
 
         function syncReadOnlyThresholdDisplay() {
-            const map = [
+            const primaryMap = [
+                ['roPrimaryMaxMax', 'max_max'],
+                ['roPrimaryMinMax', 'min_max'],
+                ['roPrimaryMaxMin', 'max_min'],
+                ['roPrimaryMinMin', 'min_min']
+            ];
+            primaryMap.forEach(([elId, key]) => {
+                const el = document.getElementById(elId);
+                if (!el) return;
+                const val = userThresholds.primary[key];
+                el.textContent = (val !== null && val !== undefined && Number.isFinite(val)) ? `${val} m/s²` : 'Unset';
+            });
+
+            const secondaryMap = [
                 ['roSecondaryMaxMax', 'max_max'],
                 ['roSecondaryMinMax', 'min_max'],
                 ['roSecondaryMaxMin', 'max_min'],
                 ['roSecondaryMinMin', 'min_min']
             ];
-            map.forEach(([elId, key]) => {
+            secondaryMap.forEach(([elId, key]) => {
                 const el = document.getElementById(elId);
                 if (!el) return;
                 const val = userThresholds.secondary[key];
@@ -2441,6 +2460,7 @@
                             });
                         });
                         syncReadOnlyThresholdDisplay();
+                        applyThresholdLinesToChart('primary');
                         applyThresholdLinesToChart('secondary');
                     }
                     return;
@@ -3111,25 +3131,10 @@
             requestGraphData();
         }
 
-        function setDispChartAxis(axis, btn) {
-            dispChartAxis = axis;
-            if (btn) {
-                btn.closest('.kpi-axis-selector').querySelectorAll('.kpi-axis-btn')
-                   .forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
-            }
-            const titleEl = document.getElementById('secondaryChartTitle');
-            if (titleEl) {
-                titleEl.textContent = `Displacement Trend \u2014 ${axis}-Axis`;
-            }
-            trendBufferSecondary = [];
-            _syncSecondaryThresholdsForAxis();
-            fetchDisplacementChart();
-        }
-
         // ========== DATA REQUESTS ==========
         function requestGraphData() {
-            // Primary chart (Acceleration Trend, local hub only): via Socket.IO
-            if (!IS_CLOUD && primaryChart) {
+            // Primary chart (Acceleration Trend — Z-Axis): via Socket.IO
+            if (primaryChart) {
                 const reqDataPrimary = { axis: 'Z', metric: currentMetric };
                 if (filterStart && filterEnd) {
                     reqDataPrimary.start_time = filterStart;
@@ -3140,7 +3145,7 @@
                 socket.emit('request_axis_data', reqDataPrimary);
             }
 
-            // Displacement Trend chart (Z/X/Y selectable on cloud): via REST
+            // Displacement Trend chart (Z-Axis): via REST
             fetchDisplacementChart();
         }
 
