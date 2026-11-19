@@ -50,56 +50,83 @@ PARSED_KEYS = [
 
 COL_INDEX = {col: idx for idx, col in enumerate(CSV_HEADERS)}
 
-# ================= DEFAULT 4-LEVEL THRESHOLDS =================
-DEFAULT_THRESHOLDS = {
+# ================= FRONTEND-ONLY 4-LEVEL THRESHOLDS =================
+# Zero hardcoded active numeric thresholds: lines start unset (None) until
+# configured by the user in the dashboard UI (and persisted in Neon DB).
+EMPTY_THRESHOLDS = {
     'z_axis': {
         'acceleration': {
-            'over_positive': 45.0,     # Max Max (Upper Critical)
-            'under_positive': 6.5,     # Min Max (Upper Warning)
-            'under_negative': -6.5,    # Max Min (Lower Warning)
-            'over_negative': -20.0,    # Min Min (Lower Critical)
+            'over_positive': None,     # Max Max (Upper Critical)
+            'under_positive': None,    # Min Max (Upper Warning)
+            'under_negative': None,    # Max Min (Lower Warning)
+            'over_negative': None,     # Min Min (Lower Critical)
         },
         'displacement': {
-            'over_positive': 0.5,
-            'under_positive': 0.2,
-            'under_negative': 0.05,
-            'over_negative': 0.0,
+            'over_positive': None,
+            'under_positive': None,
+            'under_negative': None,
+            'over_negative': None,
         },
     },
     'x_axis': {
         'acceleration': {
-            'over_positive': 45.0,
-            'under_positive': 6.5,
-            'under_negative': -6.5,
-            'over_negative': -20.0,
+            'over_positive': None,
+            'under_positive': None,
+            'under_negative': None,
+            'over_negative': None,
         },
         'displacement': {
-            'over_positive': 0.5,
-            'under_positive': 0.2,
-            'under_negative': 0.05,
-            'over_negative': 0.0,
+            'over_positive': None,
+            'under_positive': None,
+            'under_negative': None,
+            'over_negative': None,
         },
     },
     'y_axis': {
         'acceleration': {
-            'over_positive': 45.0,
-            'under_positive': 6.5,
-            'under_negative': -6.5,
-            'over_negative': -20.0,
+            'over_positive': None,
+            'under_positive': None,
+            'under_negative': None,
+            'over_negative': None,
         },
         'displacement': {
-            'over_positive': 0.5,
-            'under_positive': 0.2,
-            'under_negative': 0.05,
-            'over_negative': 0.0,
+            'over_positive': None,
+            'under_positive': None,
+            'under_negative': None,
+            'over_negative': None,
         },
     },
 }
 
+DEFAULT_THRESHOLDS = EMPTY_THRESHOLDS
+
+
+def get_empty_thresholds() -> dict:
+    """Return a deep copy of the unset (all-None) 4-level threshold structure."""
+    return copy.deepcopy(EMPTY_THRESHOLDS)
+
 
 def get_default_thresholds() -> dict:
-    """Return a deep copy of the default 4-level thresholds structure."""
-    return copy.deepcopy(DEFAULT_THRESHOLDS)
+    """Return unset (all-None) thresholds so only frontend-configured lines are active."""
+    return get_empty_thresholds()
+
+
+def has_any_active_threshold(thresholds: dict) -> bool:
+    """Return True if at least one numeric threshold line is set."""
+    if not isinstance(thresholds, dict):
+        return False
+    for axis_key in ('z_axis', 'x_axis', 'y_axis'):
+        metrics = thresholds.get(axis_key)
+        if not isinstance(metrics, dict):
+            continue
+        for metric_key in ('acceleration', 'displacement'):
+            vals = metrics.get(metric_key)
+            if not isinstance(vals, dict):
+                continue
+            for lvl in ('over_positive', 'under_positive', 'under_negative', 'over_negative'):
+                if to_float(vals.get(lvl)) is not None:
+                    return True
+    return False
 
 
 def to_float(val):
@@ -130,9 +157,10 @@ def sanitize_fault_name(fault_type: str) -> str:
 
 
 # ================= THRESHOLD EVALUATION & UPDATES =================
-def check_threshold_violation(max_val, min_val_or_thresh, maybe_thresh=None):
+def check_threshold_violation_detail(max_val, min_val_or_thresh, maybe_thresh=None):
     """
-    Check 4 threshold levels (Max Max, Min Max, Max Min, Min Min):
+    Evaluate 4 frontend-configured threshold levels and return
+    (level, measured_value, threshold_value) or (None, None, None):
       - Max Max: max_val > over_positive (Upper Critical Peak)
       - Min Min: min_val < over_negative (Lower Critical Peak)
       - Min Max: 0 < max_val < under_positive (Upper Warning / Low Positive)
@@ -149,7 +177,7 @@ def check_threshold_violation(max_val, min_val_or_thresh, maybe_thresh=None):
     max_val = to_float(max_val)
 
     if not thresholds or not isinstance(thresholds, dict):
-        return None
+        return None, None, None
 
     over_pos = to_float(thresholds.get('over_positive'))
     under_pos = to_float(thresholds.get('under_positive'))
@@ -158,30 +186,37 @@ def check_threshold_violation(max_val, min_val_or_thresh, maybe_thresh=None):
 
     # 1. Critical High (Max Max)
     if max_val is not None and over_pos is not None and max_val > over_pos:
-        return 'Max Max'
+        return 'Max Max', max_val, over_pos
 
     # 2. Critical Low (Min Min)
     if min_val is not None and over_neg is not None and min_val < over_neg:
-        return 'Min Min'
+        return 'Min Min', min_val, over_neg
 
     # 3. Warning High (Min Max)
     if max_val is not None and under_pos is not None and under_pos > 0 and 0 < max_val < under_pos:
-        return 'Min Max'
+        return 'Min Max', max_val, under_pos
 
     # 4. Warning Low (Max Min)
     if min_val is not None and under_neg is not None and under_neg < 0 and under_neg < min_val < 0:
-        return 'Max Min'
+        return 'Max Min', min_val, under_neg
 
-    return None
+    return None, None, None
 
 
-def check_all_axes_violations(parsed: dict, thresholds: dict):
+def check_threshold_violation(max_val, min_val_or_thresh, maybe_thresh=None):
+    """Backward-compatible wrapper returning only the violated threshold level string or None."""
+    level, _, _ = check_threshold_violation_detail(max_val, min_val_or_thresh, maybe_thresh)
+    return level
+
+
+def check_all_axes_violations_detailed(parsed: dict, thresholds: dict):
     """
-    Evaluate Z, X, Y acceleration against thresholds, plus Z displacement upper critical limit.
-    Returns (violation_label, axis_label, breach_value) or (None, None, None).
+    Evaluate Z, X, Y acceleration and displacement ONLY against non-None
+    thresholds set on the frontend chart lines.
+    Returns dict with {level, axis, metric, measured_value, threshold_value, fault_type} or None.
     """
     if not parsed or not thresholds:
-        return None, None, None
+        return None
 
     for axis_key, axis_letter in (('z_axis', 'Z'), ('x_axis', 'X'), ('y_axis', 'Y')):
         axis_thresh = thresholds.get(axis_key, {}).get('acceleration')
@@ -191,40 +226,77 @@ def check_all_axes_violations(parsed: dict, thresholds: dict):
         min_v = to_float(parsed.get(f'min_a{axis_letter.lower()}'))
         if max_v is None and min_v is None:
             continue
-        violation = check_threshold_violation(max_v, min_v, axis_thresh)
-        if violation:
-            breach_val = min_v if violation in ('Min Min', 'Max Min') and min_v is not None else max_v
-            return violation, axis_letter, breach_val
+        level, measured_val, thresh_val = check_threshold_violation_detail(max_v, min_v, axis_thresh)
+        if level:
+            return {
+                'level': level,
+                'axis': axis_letter,
+                'metric': 'acceleration',
+                'measured_value': measured_val,
+                'threshold_value': thresh_val,
+                'fault_type': f"{axis_letter}-Axis {level} Threshold",
+            }
 
-    # Check Z displacement upper critical peak if no acceleration violation occurred
-    disp_thresh = thresholds.get('z_axis', {}).get('displacement')
-    if disp_thresh:
-        disp_peak_z = to_float(parsed.get('disp_peak_z_mm'))
-        over_pos = to_float(disp_thresh.get('over_positive'))
-        if disp_peak_z is not None and over_pos is not None and disp_peak_z > over_pos:
-            return 'Max Max', 'Z-Disp', disp_peak_z
+    for axis_key, axis_letter, col_suffix in (
+        ('z_axis', 'Z-Disp', 'z'),
+        ('x_axis', 'X-Disp', 'x'),
+        ('y_axis', 'Y-Disp', 'y'),
+    ):
+        disp_thresh = thresholds.get(axis_key, {}).get('displacement')
+        if not disp_thresh:
+            continue
+        disp_peak = to_float(parsed.get(f'disp_peak_{col_suffix}_mm'))
+        if disp_peak is None:
+            continue
+        level, measured_val, thresh_val = check_threshold_violation_detail(disp_peak, disp_peak, disp_thresh)
+        if level:
+            return {
+                'level': level,
+                'axis': axis_letter,
+                'metric': 'displacement',
+                'measured_value': measured_val,
+                'threshold_value': thresh_val,
+                'fault_type': f"{axis_letter} {level} Threshold",
+            }
 
-    return None, None, None
+    return None
+
+
+def check_all_axes_violations(parsed: dict, thresholds: dict):
+    """
+    Evaluate Z, X, Y acceleration & displacement against frontend thresholds.
+    Returns (violation_label, axis_label, breach_value) or (None, None, None).
+    """
+    detail = check_all_axes_violations_detailed(parsed, thresholds)
+    if not detail:
+        return None, None, None
+    return detail['level'], detail['axis'], detail['measured_value']
 
 
 def apply_threshold_payload(thresholds: dict, data: dict) -> dict:
     """
     Apply either nested axis/metric dicts or flat chart updates
     (max_max, min_max, max_min, min_min + legacy aliases) onto `thresholds` in place.
+    Explicit None or '' clears a line back to unset (None).
     """
     if not isinstance(data, dict):
         return thresholds
 
     valid_keys = {'over_positive', 'under_positive', 'under_negative', 'over_negative'}
     for axis, metrics in data.items():
+        if axis in ('configured', 'updated_at'):
+            continue
         if axis in thresholds and isinstance(metrics, dict):
             for metric, vals in metrics.items():
                 if metric in thresholds[axis] and isinstance(vals, dict):
                     for k, v in vals.items():
                         if k in valid_keys:
-                            f = to_float(v)
-                            if f is not None:
-                                thresholds[axis][metric][k] = f
+                            if v is None or v == '':
+                                thresholds[axis][metric][k] = None
+                            else:
+                                f = to_float(v)
+                                if f is not None:
+                                    thresholds[axis][metric][k] = f
 
     if 'axis' in data:
         axis = data['axis']
@@ -239,10 +311,14 @@ def apply_threshold_payload(thresholds: dict, data: dict) -> dict:
             )
             for canonical_key, aliases in key_aliases:
                 for alias in aliases:
-                    if alias in data and data[alias] is not None:
-                        f = to_float(data[alias])
-                        if f is not None:
-                            target[canonical_key] = f
+                    if alias in data:
+                        raw_val = data[alias]
+                        if raw_val is None or raw_val == '':
+                            target[canonical_key] = None
+                        else:
+                            f = to_float(raw_val)
+                            if f is not None:
+                                target[canonical_key] = f
                         break
 
     return thresholds
@@ -692,25 +768,20 @@ def rows_to_csv_string(rows: list) -> str:
 
 def compute_chart_alerts(datetime_labels: list, max_vals: list, min_vals: list, thresh_dict: dict) -> dict:
     """
-    Identify chart points that cross critical Max Max (over_positive) or
-    Min Min (over_negative) lines so red alert markers can be plotted.
+    Identify chart points that breach any frontend-configured threshold line
+    (Max Max, Min Min, Min Max, Max Min) so red alert markers can be plotted.
     """
     alert_dt = []
     alert_val = []
     if not thresh_dict or not datetime_labels:
         return {'datetimes': alert_dt, 'values': alert_val}
 
-    over_pos = to_float(thresh_dict.get('over_positive'))
-    over_neg = to_float(thresh_dict.get('over_negative'))
-
     for i, dt_str in enumerate(datetime_labels):
         mx = to_float(max_vals[i]) if i < len(max_vals) else None
         mn = to_float(min_vals[i]) if i < len(min_vals) else None
-        if mx is not None and over_pos is not None and mx > over_pos:
+        level, measured_val, _ = check_threshold_violation_detail(mx, mn, thresh_dict)
+        if level is not None and measured_val is not None:
             alert_dt.append(dt_str)
-            alert_val.append(mx)
-        elif mn is not None and over_neg is not None and mn < over_neg:
-            alert_dt.append(dt_str)
-            alert_val.append(mn)
+            alert_val.append(measured_val)
 
     return {'datetimes': alert_dt, 'values': alert_val}

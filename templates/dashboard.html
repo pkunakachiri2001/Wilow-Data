@@ -1856,7 +1856,7 @@
                 <div class="thresh-group">
                     <span class="thresh-pill max-max-pill" title="Max Max: Upper Critical Threshold (+)">Max Max</span>
                     <div class="thresh-input-wrap">
-                        <input type="number" step="any" id="primaryMaxMaxThresh" class="thresh-input" value="45" title="Set Max Max Threshold" oninput="onThresholdInputChange('primary')">
+                        <input type="number" step="any" id="primaryMaxMaxThresh" class="thresh-input" value="" placeholder="Unset" title="Set Max Max Threshold" oninput="onThresholdInputChange('primary')">
                         <div class="thresh-stepper">
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'max_max', 1)" title="Increase Max Max">▲</button>
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'max_max', -1)" title="Decrease Max Max">▼</button>
@@ -1866,7 +1866,7 @@
                 <div class="thresh-group">
                     <span class="thresh-pill min-max-pill" title="Min Max: Upper Warning Threshold (+)">Min Max</span>
                     <div class="thresh-input-wrap">
-                        <input type="number" step="any" id="primaryMinMaxThresh" class="thresh-input" value="6.5" title="Set Min Max Threshold" oninput="onThresholdInputChange('primary')">
+                        <input type="number" step="any" id="primaryMinMaxThresh" class="thresh-input" value="" placeholder="Unset" title="Set Min Max Threshold" oninput="onThresholdInputChange('primary')">
                         <div class="thresh-stepper">
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'min_max', 1)" title="Increase Min Max">▲</button>
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'min_max', -1)" title="Decrease Min Max">▼</button>
@@ -1876,7 +1876,7 @@
                 <div class="thresh-group">
                     <span class="thresh-pill max-min-pill" title="Max Min: Lower Warning Threshold (-)">Max Min</span>
                     <div class="thresh-input-wrap">
-                        <input type="number" step="any" id="primaryMaxMinThresh" class="thresh-input" value="-6.5" title="Set Max Min Threshold" oninput="onThresholdInputChange('primary')">
+                        <input type="number" step="any" id="primaryMaxMinThresh" class="thresh-input" value="" placeholder="Unset" title="Set Max Min Threshold" oninput="onThresholdInputChange('primary')">
                         <div class="thresh-stepper">
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'max_min', 1)" title="Increase Max Min">▲</button>
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'max_min', -1)" title="Decrease Max Min">▼</button>
@@ -1886,7 +1886,7 @@
                 <div class="thresh-group">
                     <span class="thresh-pill min-min-pill" title="Min Min: Lower Critical Threshold (-)">Min Min</span>
                     <div class="thresh-input-wrap">
-                        <input type="number" step="any" id="primaryMinMinThresh" class="thresh-input" value="-20" title="Set Min Min Threshold" oninput="onThresholdInputChange('primary')">
+                        <input type="number" step="any" id="primaryMinMinThresh" class="thresh-input" value="" placeholder="Unset" title="Set Min Min Threshold" oninput="onThresholdInputChange('primary')">
                         <div class="thresh-stepper">
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'min_min', 1)" title="Increase Min Min">▲</button>
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('primary', 'min_min', -1)" title="Decrease Min Min">▼</button>
@@ -1894,7 +1894,7 @@
                     </div>
                 </div>
                 <button type="button" class="thresh-btn" onclick="saveAndApplyThresholds('primary')" title="Set and Save Thresholds">Set</button>
-                <button type="button" class="thresh-btn reset" onclick="resetThresholdsToDefault('primary')" title="Reset to Defaults">↺</button>
+                <button type="button" class="thresh-btn reset" onclick="clearThresholds('primary')" title="Clear Threshold Lines">Clear</button>
             </div>
             <div class="chart-wrapper">
                 <canvas id="primaryChart"></canvas>
@@ -1924,7 +1924,7 @@
                 <div class="thresh-group">
                     <span class="thresh-pill max-max-pill" title="Max Max: Upper Critical Threshold">Max Max</span>
                     <div class="thresh-input-wrap">
-                        <input type="number" step="any" id="secondaryMaxMaxThresh" class="thresh-input" value="0.5" title="Set Max Max Threshold" oninput="onThresholdInputChange('secondary')">
+                        <input type="number" step="any" id="secondaryMaxMaxThresh" class="thresh-input" value="" placeholder="Unset" title="Set Max Max Threshold" oninput="onThresholdInputChange('secondary')">
                         <div class="thresh-stepper">
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'max_max', 1)" title="Increase Max Max">▲</button>
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'max_max', -1)" title="Decrease Max Max">▼</button>
@@ -1934,7 +1934,7 @@
                 <div class="thresh-group">
                     <span class="thresh-pill min-max-pill" title="Min Max: Upper Warning Threshold">Min Max</span>
                     <div class="thresh-input-wrap">
-                        <input type="number" step="any" id="secondaryMinMaxThresh" class="thresh-input" value="0.2" title="Set Min Max Threshold" oninput="onThresholdInputChange('secondary')">
+                        <input type="number" step="any" id="secondaryMinMaxThresh" class="thresh-input" value="" placeholder="Unset" title="Set Min Max Threshold" oninput="onThresholdInputChange('secondary')">
                         <div class="thresh-stepper">
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'min_max', 1)" title="Increase Min Max">▲</button>
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'min_max', -1)" title="Decrease Min Max">▼</button>
@@ -1944,7 +1944,7 @@
                 <div class="thresh-group">
                     <span class="thresh-pill max-min-pill" title="Max Min: Lower Warning Threshold">Max Min</span>
                     <div class="thresh-input-wrap">
-                        <input type="number" step="any" id="secondaryMaxMinThresh" class="thresh-input" value="0.05" title="Set Max Min Threshold" oninput="onThresholdInputChange('secondary')">
+                        <input type="number" step="any" id="secondaryMaxMinThresh" class="thresh-input" value="" placeholder="Unset" title="Set Max Min Threshold" oninput="onThresholdInputChange('secondary')">
                         <div class="thresh-stepper">
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'max_min', 1)" title="Increase Max Min">▲</button>
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'max_min', -1)" title="Decrease Max Min">▼</button>
@@ -1954,7 +1954,7 @@
                 <div class="thresh-group">
                     <span class="thresh-pill min-min-pill" title="Min Min: Lower Critical Threshold">Min Min</span>
                     <div class="thresh-input-wrap">
-                        <input type="number" step="any" id="secondaryMinMinThresh" class="thresh-input" value="0.0" title="Set Min Min Threshold" oninput="onThresholdInputChange('secondary')">
+                        <input type="number" step="any" id="secondaryMinMinThresh" class="thresh-input" value="" placeholder="Unset" title="Set Min Min Threshold" oninput="onThresholdInputChange('secondary')">
                         <div class="thresh-stepper">
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'min_min', 1)" title="Increase Min Min">▲</button>
                             <button type="button" class="thresh-step-btn" onclick="stepThreshold('secondary', 'min_min', -1)" title="Decrease Min Min">▼</button>
@@ -1962,7 +1962,7 @@
                     </div>
                 </div>
                 <button type="button" class="thresh-btn" onclick="saveAndApplyThresholds('secondary')" title="Set and Save Thresholds">Set</button>
-                <button type="button" class="thresh-btn reset" onclick="resetThresholdsToDefault('secondary')" title="Reset to Defaults">↺</button>
+                <button type="button" class="thresh-btn reset" onclick="clearThresholds('secondary')" title="Clear Threshold Lines">Clear</button>
             </div>
             <div class="chart-wrapper">
                 <canvas id="secondaryChart"></canvas>
@@ -2074,31 +2074,29 @@
             }
         }
 
+        function _parseOptNum(v) {
+            if (v === null || v === undefined || String(v).trim() === '') return null;
+            const n = parseFloat(v);
+            return Number.isFinite(n) ? n : null;
+        }
+
         function _applyServerThresholdsObj(serverThresholds) {
             if (!serverThresholds || !serverThresholds.z_axis) return;
             thresholds = serverThresholds;
             if (serverThresholds.z_axis.acceleration) {
                 const za = serverThresholds.z_axis.acceleration;
-                defaultThresholds.primary.max_max = za.over_positive;
-                defaultThresholds.primary.min_max = za.under_positive;
-                defaultThresholds.primary.max_min = za.under_negative;
-                defaultThresholds.primary.min_min = za.over_negative;
-                userThresholds.primary.max_max = za.over_positive;
-                userThresholds.primary.min_max = za.under_positive;
-                userThresholds.primary.max_min = za.under_negative;
-                userThresholds.primary.min_min = za.over_negative;
+                userThresholds.primary.max_max = _parseOptNum(za.over_positive);
+                userThresholds.primary.min_max = _parseOptNum(za.under_positive);
+                userThresholds.primary.max_min = _parseOptNum(za.under_negative);
+                userThresholds.primary.min_min = _parseOptNum(za.over_negative);
                 saveThresholdsToStorage('primary');
             }
             if (serverThresholds.z_axis.displacement) {
                 const zd = serverThresholds.z_axis.displacement;
-                defaultThresholds.secondary.max_max = zd.over_positive;
-                defaultThresholds.secondary.min_max = zd.under_positive;
-                defaultThresholds.secondary.max_min = zd.under_negative;
-                defaultThresholds.secondary.min_min = zd.over_negative;
-                userThresholds.secondary.max_max = zd.over_positive;
-                userThresholds.secondary.min_max = zd.under_positive;
-                userThresholds.secondary.max_min = zd.under_negative;
-                userThresholds.secondary.min_min = zd.over_negative;
+                userThresholds.secondary.max_max = _parseOptNum(zd.over_positive);
+                userThresholds.secondary.min_max = _parseOptNum(zd.under_positive);
+                userThresholds.secondary.max_min = _parseOptNum(zd.under_negative);
+                userThresholds.secondary.min_min = _parseOptNum(zd.over_negative);
                 saveThresholdsToStorage('secondary');
             }
             syncThresholdInputsUI();
@@ -2106,16 +2104,12 @@
             applyThresholdLinesToChart('secondary');
         }
 
-        // ========== THRESHOLD HELPERS & MANAGEMENT ==========
-        const defaultThresholds = {
-            primary: { max_max: 45.0, min_max: 6.5, max_min: -6.5, min_min: -20.0 },
-            secondary: { max_max: 0.5, min_max: 0.2, max_min: 0.05, min_min: 0.0 }
-        };
-
+        // ========== THRESHOLD HELPERS & MANAGEMENT (FRONTEND LINES = SINGLE SOURCE OF TRUTH) ==========
         let userThresholds = {
-            primary: { max_max: 45.0, min_max: 6.5, max_min: -6.5, min_min: -20.0 },
-            secondary: { max_max: 0.5, min_max: 0.2, max_min: 0.05, min_min: 0.0 }
+            primary: { max_max: null, min_max: null, max_min: null, min_min: null },
+            secondary: { max_max: null, min_max: null, max_min: null, min_min: null }
         };
+        const _threshSyncTimers = { primary: null, secondary: null };
 
         function _capitalKey(type) {
             if (type === 'max_max') return 'MaxMax';
@@ -2126,27 +2120,25 @@
         }
 
         function loadStoredThresholds() {
+            let hasAny = false;
             try {
                 ['primary', 'secondary'].forEach(target => {
                     ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
-                        const stored = localStorage.getItem(`cirus_thresh_${target}_${key}`);
-                        if (stored !== null && !isNaN(parseFloat(stored))) {
-                            userThresholds[target][key] = parseFloat(stored);
+                        const stored = localStorage.getItem(`wilow_ui_thresh_v2_${target}_${key}`);
+                        const parsed = _parseOptNum(stored);
+                        if (parsed !== null) {
+                            userThresholds[target][key] = parsed;
+                            hasAny = true;
+                        } else {
+                            userThresholds[target][key] = null;
                         }
                     });
-                    if (localStorage.getItem(`cirus_thresh_${target}_max_max`) === null) {
-                        const legacyMax = localStorage.getItem(`cirus_thresh_${target}_max`);
-                        if (legacyMax !== null && !isNaN(parseFloat(legacyMax))) userThresholds[target].max_max = parseFloat(legacyMax);
-                    }
-                    if (localStorage.getItem(`cirus_thresh_${target}_min_min`) === null) {
-                        const legacyMin = localStorage.getItem(`cirus_thresh_${target}_min`);
-                        if (legacyMin !== null && !isNaN(parseFloat(legacyMin))) userThresholds[target].min_min = parseFloat(legacyMin);
-                    }
                 });
             } catch (e) {
                 console.warn('Could not read localStorage for thresholds:', e);
             }
             syncThresholdInputsUI();
+            return hasAny;
         }
 
         function syncThresholdInputsUI() {
@@ -2154,35 +2146,49 @@
                 ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
                     const input = document.getElementById(target + _capitalKey(key) + 'Thresh');
                     if (input && document.activeElement !== input) {
-                        input.value = userThresholds[target][key];
+                        const val = userThresholds[target][key];
+                        input.value = (val !== null && val !== undefined && Number.isFinite(val)) ? val : '';
                     }
                 });
             });
         }
 
-        function onThresholdInputChange(target) {
+        function _applyInputsToChartAndStorage(target) {
             ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
                 const input = document.getElementById(target + _capitalKey(key) + 'Thresh');
                 if (input) {
-                    const val = parseFloat(input.value);
-                    if (!isNaN(val)) userThresholds[target][key] = val;
+                    userThresholds[target][key] = _parseOptNum(input.value);
                 }
             });
-
             applyThresholdLinesToChart(target);
             saveThresholdsToStorage(target);
+        }
+
+        function scheduleThresholdSync(target) {
+            if (_threshSyncTimers[target]) {
+                clearTimeout(_threshSyncTimers[target]);
+            }
+            _threshSyncTimers[target] = setTimeout(() => {
+                _threshSyncTimers[target] = null;
+                syncThresholdsToBackend(target);
+            }, 450);
+        }
+
+        function onThresholdInputChange(target) {
+            _applyInputsToChartAndStorage(target);
+            scheduleThresholdSync(target);
         }
 
         function stepThreshold(target, type, direction) {
             const input = document.getElementById(target + _capitalKey(type) + 'Thresh');
             if (!input) return;
 
-            let cur = parseFloat(input.value);
-            if (isNaN(cur)) cur = defaultThresholds[target][type];
+            let cur = _parseOptNum(input.value);
+            if (cur === null) cur = 0;
 
             let step = 1;
-            if (target === 'secondary' || Math.abs(cur) <= 1) step = 0.05;
-            if (Math.abs(cur) <= 0.05) step = 0.005;
+            if (target === 'secondary' || (cur !== 0 && Math.abs(cur) <= 1)) step = 0.05;
+            if (cur !== 0 && Math.abs(cur) <= 0.05) step = 0.005;
 
             let nextVal = parseFloat((cur + direction * step).toFixed(4));
             input.value = nextVal;
@@ -2190,6 +2196,7 @@
 
             applyThresholdLinesToChart(target);
             saveThresholdsToStorage(target);
+            scheduleThresholdSync(target);
         }
 
         function applyThresholdLinesToChart(target) {
@@ -2200,27 +2207,30 @@
             if (!ann) return;
 
             const t = userThresholds[target];
+            const mapping = [
+                ['max_max_line', 'max_max', 'Max Max: '],
+                ['min_max_line', 'min_max', 'Min Max: '],
+                ['max_min_line', 'max_min', 'Max Min: '],
+                ['min_min_line', 'min_min', 'Min Min: ']
+            ];
 
-            if (ann.max_max_line) {
-                ann.max_max_line.yMin = t.max_max;
-                ann.max_max_line.yMax = t.max_max;
-                if (ann.max_max_line.label) ann.max_max_line.label.content = 'Max Max: ' + t.max_max;
-            }
-            if (ann.min_max_line) {
-                ann.min_max_line.yMin = t.min_max;
-                ann.min_max_line.yMax = t.min_max;
-                if (ann.min_max_line.label) ann.min_max_line.label.content = 'Min Max: ' + t.min_max;
-            }
-            if (ann.max_min_line) {
-                ann.max_min_line.yMin = t.max_min;
-                ann.max_min_line.yMax = t.max_min;
-                if (ann.max_min_line.label) ann.max_min_line.label.content = 'Max Min: ' + t.max_min;
-            }
-            if (ann.min_min_line) {
-                ann.min_min_line.yMin = t.min_min;
-                ann.min_min_line.yMax = t.min_min;
-                if (ann.min_min_line.label) ann.min_min_line.label.content = 'Min Min: ' + t.min_min;
-            }
+            mapping.forEach(([lineKey, valKey, prefix]) => {
+                const line = ann[lineKey];
+                if (!line) return;
+                const v = _parseOptNum(t[valKey]);
+                if (v !== null) {
+                    line.display = true;
+                    line.yMin = v;
+                    line.yMax = v;
+                    if (line.label) {
+                        line.label.display = true;
+                        line.label.content = prefix + v;
+                    }
+                } else {
+                    line.display = false;
+                    if (line.label) line.label.display = false;
+                }
+            });
 
             chart.update('none');
         }
@@ -2228,29 +2238,44 @@
         function saveThresholdsToStorage(target) {
             try {
                 ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
-                    localStorage.setItem(`cirus_thresh_${target}_${key}`, userThresholds[target][key]);
+                    const storageKey = `wilow_ui_thresh_v2_${target}_${key}`;
+                    const v = userThresholds[target][key];
+                    if (v !== null && v !== undefined && Number.isFinite(v)) {
+                        localStorage.setItem(storageKey, String(v));
+                    } else {
+                        localStorage.removeItem(storageKey);
+                    }
                 });
             } catch (e) {}
         }
 
-        function saveAndApplyThresholds(target) {
-            onThresholdInputChange(target);
-            saveThresholdsToStorage(target);
-            syncThresholdsToBackend(target);
+        async function saveAndApplyThresholds(target) {
+            if (_threshSyncTimers[target]) {
+                clearTimeout(_threshSyncTimers[target]);
+                _threshSyncTimers[target] = null;
+            }
+            _applyInputsToChartAndStorage(target);
+            await syncThresholdsToBackend(target);
             const t = userThresholds[target];
             const name = target === 'primary' ? 'Acceleration' : 'Displacement';
-            showToast(`✅ ${name} thresholds saved (MaxMax: ${t.max_max}, MinMax: ${t.min_max}, MaxMin: ${t.max_min}, MinMin: ${t.min_min})`);
+            const fmtVal = (v) => (v !== null && v !== undefined) ? v : 'Unset';
+            showToast(`✅ ${name} thresholds saved to Neon (MaxMax: ${fmtVal(t.max_max)}, MinMax: ${fmtVal(t.min_max)}, MaxMin: ${fmtVal(t.max_min)}, MinMin: ${fmtVal(t.min_min)})`);
         }
 
-        function resetThresholdsToDefault(target) {
+        async function clearThresholds(target) {
+            if (_threshSyncTimers[target]) {
+                clearTimeout(_threshSyncTimers[target]);
+                _threshSyncTimers[target] = null;
+            }
             ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
-                userThresholds[target][key] = defaultThresholds[target][key];
+                userThresholds[target][key] = null;
+                const input = document.getElementById(target + _capitalKey(key) + 'Thresh');
+                if (input) input.value = '';
             });
-            syncThresholdInputsUI();
             applyThresholdLinesToChart(target);
             saveThresholdsToStorage(target);
-            syncThresholdsToBackend(target);
-            showToast(`↺ Reset ${target === 'primary' ? 'Acceleration' : 'Displacement'} thresholds to defaults`);
+            await syncThresholdsToBackend(target);
+            showToast(`Cleared ${target === 'primary' ? 'Acceleration' : 'Displacement'} threshold lines`);
         }
 
         async function syncThresholdsToBackend(target) {
@@ -2258,7 +2283,7 @@
             const metricKey = target === 'primary' ? 'acceleration' : 'displacement';
             const t = userThresholds[target];
             try {
-                await fetch('/api/thresholds', {
+                const res = await fetch('/api/thresholds', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2270,6 +2295,10 @@
                         min_min: t.min_min
                     })
                 });
+                if (res.ok) {
+                    const j = await res.json();
+                    if (j && j.thresholds) thresholds = j.thresholds;
+                }
             } catch (err) {
                 console.warn('Backend threshold sync failed (using local UI values):', err);
             }
@@ -2281,7 +2310,19 @@
                 if (!response.ok) return;
                 const data = await response.json();
                 console.log('Thresholds loaded from server:', data);
-                _applyServerThresholdsObj(data);
+                if (data && data.configured) {
+                    _applyServerThresholdsObj(data);
+                } else {
+                    const hasLocal = loadStoredThresholds();
+                    applyThresholdLinesToChart('primary');
+                    applyThresholdLinesToChart('secondary');
+                    if (hasLocal) {
+                        await syncThresholdsToBackend('primary');
+                        await syncThresholdsToBackend('secondary');
+                    } else {
+                        thresholds = data;
+                    }
+                }
             } catch (error) {
                 console.warn('Failed to fetch server thresholds (using stored UI values):', error);
             }
@@ -2368,10 +2409,23 @@
                     const faultSafe = escapeHtml(e.fault_type);
                     const fileSafe = escapeHtml(e.filename);
                     const dlPath = `${encodeURIComponent(e.fault_type || '')}/${encodeURIComponent(e.filename || '')}`;
+                    let metaParts = [];
+                    if (e.threshold_value !== null && e.threshold_value !== undefined) {
+                        metaParts.push(`Line: ${escapeHtml(e.threshold_value)}`);
+                    }
+                    if (e.measured_value !== null && e.measured_value !== undefined) {
+                        metaParts.push(`Measured: ${escapeHtml(e.measured_value)}`);
+                    }
+                    const metaSub = metaParts.length
+                        ? `<div style="font-size: 0.78rem; color: #94a3b8; font-weight: 400; margin-top: 2px;">${metaParts.join(' &bull; ')}</div>`
+                        : '';
+                    const srcBadge = e.source
+                        ? `<span style="margin-left: 6px; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; background: rgba(59,130,246,0.18); color: #93c5fd;">${escapeHtml(e.source)}</span>`
+                        : '';
                     return `
                     <tr>
-                        <td style="font-weight: 600;">${faultSafe}</td>
-                        <td style="color: #94a3b8;">${fileSafe}</td>
+                        <td style="font-weight: 600;">${faultSafe}${metaSub}</td>
+                        <td style="color: #94a3b8;">${fileSafe}${srcBadge}</td>
                         <td><a href="/api/events/download/${dlPath}" class="download-link" target="_blank">⬇️ Download CSV</a></td>
                     </tr>
                 `;
@@ -2447,15 +2501,16 @@
                                 },
                                 max_max_line: {
                                     type: 'line',
-                                    yMin: userThresholds.primary.max_max,
-                                    yMax: userThresholds.primary.max_max,
+                                    display: userThresholds.primary.max_max !== null,
+                                    yMin: userThresholds.primary.max_max ?? 0,
+                                    yMax: userThresholds.primary.max_max ?? 0,
                                     borderColor: '#ef4444',
                                     borderWidth: 2,
                                     borderDash: [6, 4],
                                     label: { 
-                                        content: 'Max Max: ' + userThresholds.primary.max_max, 
+                                        content: 'Max Max: ' + (userThresholds.primary.max_max ?? ''), 
                                         enabled: true, 
-                                        display: true,
+                                        display: userThresholds.primary.max_max !== null,
                                         backgroundColor: 'rgba(239, 68, 68, 0.85)',
                                         color: '#ffffff',
                                         font: { size: 10, weight: 'bold' },
@@ -2465,15 +2520,16 @@
                                 },
                                 min_max_line: {
                                     type: 'line',
-                                    yMin: userThresholds.primary.min_max,
-                                    yMax: userThresholds.primary.min_max,
+                                    display: userThresholds.primary.min_max !== null,
+                                    yMin: userThresholds.primary.min_max ?? 0,
+                                    yMax: userThresholds.primary.min_max ?? 0,
                                     borderColor: '#f97316',
                                     borderWidth: 2,
                                     borderDash: [5, 4],
                                     label: { 
-                                        content: 'Min Max: ' + userThresholds.primary.min_max, 
+                                        content: 'Min Max: ' + (userThresholds.primary.min_max ?? ''), 
                                         enabled: true, 
-                                        display: true,
+                                        display: userThresholds.primary.min_max !== null,
                                         backgroundColor: 'rgba(249, 115, 22, 0.85)',
                                         color: '#ffffff',
                                         font: { size: 10, weight: 'bold' },
@@ -2483,15 +2539,16 @@
                                 },
                                 max_min_line: {
                                     type: 'line',
-                                    yMin: userThresholds.primary.max_min,
-                                    yMax: userThresholds.primary.max_min,
+                                    display: userThresholds.primary.max_min !== null,
+                                    yMin: userThresholds.primary.max_min ?? 0,
+                                    yMax: userThresholds.primary.max_min ?? 0,
                                     borderColor: '#f59e0b',
                                     borderWidth: 2,
                                     borderDash: [5, 4],
                                     label: { 
-                                        content: 'Max Min: ' + userThresholds.primary.max_min, 
+                                        content: 'Max Min: ' + (userThresholds.primary.max_min ?? ''), 
                                         enabled: true, 
-                                        display: true,
+                                        display: userThresholds.primary.max_min !== null,
                                         backgroundColor: 'rgba(245, 158, 11, 0.85)',
                                         color: '#ffffff',
                                         font: { size: 10, weight: 'bold' },
@@ -2501,15 +2558,16 @@
                                 },
                                 min_min_line: {
                                     type: 'line',
-                                    yMin: userThresholds.primary.min_min,
-                                    yMax: userThresholds.primary.min_min,
+                                    display: userThresholds.primary.min_min !== null,
+                                    yMin: userThresholds.primary.min_min ?? 0,
+                                    yMax: userThresholds.primary.min_min ?? 0,
                                     borderColor: '#dc2626',
                                     borderWidth: 2,
                                     borderDash: [6, 4],
                                     label: { 
-                                        content: 'Min Min: ' + userThresholds.primary.min_min, 
+                                        content: 'Min Min: ' + (userThresholds.primary.min_min ?? ''), 
                                         enabled: true, 
-                                        display: true,
+                                        display: userThresholds.primary.min_min !== null,
                                         backgroundColor: 'rgba(220, 38, 38, 0.85)',
                                         color: '#ffffff',
                                         font: { size: 10, weight: 'bold' },
@@ -2547,14 +2605,23 @@
                 }
             });
 
-            // Secondary Chart (X/Y axis) - Shows 3 LINES (Max/Avg/Min)
+            // Secondary Chart (Displacement Trend) - Shows 3 LINES + Alerts
             secondaryChart = new Chart(document.getElementById('secondaryChart'), {
                 type: 'line',
                 data: {
                     datasets: [
                         { label: 'Max', data: [], borderColor: darkColors.max, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 },
                         { label: 'Avg', data: [], borderColor: darkColors.avg, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 },
-                        { label: 'Min', data: [], borderColor: darkColors.min, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 }
+                        { label: 'Min', data: [], borderColor: darkColors.min, borderWidth: 2, pointRadius: 0, fill: false, tension: 0 },
+                        {
+                            label: 'Alerts',
+                            data: [],
+                            borderColor: darkColors.alert,
+                            backgroundColor: darkColors.alert,
+                            pointRadius: 8,
+                            pointStyle: 'circle',
+                            showLine: false
+                        }
                     ]
                 },
                 options: {
@@ -2583,15 +2650,16 @@
                                 },
                                 max_max_line: {
                                     type: 'line',
-                                    yMin: userThresholds.secondary.max_max,
-                                    yMax: userThresholds.secondary.max_max,
+                                    display: userThresholds.secondary.max_max !== null,
+                                    yMin: userThresholds.secondary.max_max ?? 0,
+                                    yMax: userThresholds.secondary.max_max ?? 0,
                                     borderColor: '#ef4444',
                                     borderWidth: 2,
                                     borderDash: [6, 4],
                                     label: { 
-                                        content: 'Max Max: ' + userThresholds.secondary.max_max, 
+                                        content: 'Max Max: ' + (userThresholds.secondary.max_max ?? ''), 
                                         enabled: true, 
-                                        display: true,
+                                        display: userThresholds.secondary.max_max !== null,
                                         backgroundColor: 'rgba(239, 68, 68, 0.85)',
                                         color: '#ffffff',
                                         font: { size: 10, weight: 'bold' },
@@ -2601,15 +2669,16 @@
                                 },
                                 min_max_line: {
                                     type: 'line',
-                                    yMin: userThresholds.secondary.min_max,
-                                    yMax: userThresholds.secondary.min_max,
+                                    display: userThresholds.secondary.min_max !== null,
+                                    yMin: userThresholds.secondary.min_max ?? 0,
+                                    yMax: userThresholds.secondary.min_max ?? 0,
                                     borderColor: '#f97316',
                                     borderWidth: 2,
                                     borderDash: [5, 4],
                                     label: { 
-                                        content: 'Min Max: ' + userThresholds.secondary.min_max, 
+                                        content: 'Min Max: ' + (userThresholds.secondary.min_max ?? ''), 
                                         enabled: true, 
-                                        display: true,
+                                        display: userThresholds.secondary.min_max !== null,
                                         backgroundColor: 'rgba(249, 115, 22, 0.85)',
                                         color: '#ffffff',
                                         font: { size: 10, weight: 'bold' },
@@ -2619,15 +2688,16 @@
                                 },
                                 max_min_line: {
                                     type: 'line',
-                                    yMin: userThresholds.secondary.max_min,
-                                    yMax: userThresholds.secondary.max_min,
+                                    display: userThresholds.secondary.max_min !== null,
+                                    yMin: userThresholds.secondary.max_min ?? 0,
+                                    yMax: userThresholds.secondary.max_min ?? 0,
                                     borderColor: '#f59e0b',
                                     borderWidth: 2,
                                     borderDash: [5, 4],
                                     label: { 
-                                        content: 'Max Min: ' + userThresholds.secondary.max_min, 
+                                        content: 'Max Min: ' + (userThresholds.secondary.max_min ?? ''), 
                                         enabled: true, 
-                                        display: true,
+                                        display: userThresholds.secondary.max_min !== null,
                                         backgroundColor: 'rgba(245, 158, 11, 0.85)',
                                         color: '#ffffff',
                                         font: { size: 10, weight: 'bold' },
@@ -2637,15 +2707,16 @@
                                 },
                                 min_min_line: {
                                     type: 'line',
-                                    yMin: userThresholds.secondary.min_min,
-                                    yMax: userThresholds.secondary.min_min,
+                                    display: userThresholds.secondary.min_min !== null,
+                                    yMin: userThresholds.secondary.min_min ?? 0,
+                                    yMax: userThresholds.secondary.min_min ?? 0,
                                     borderColor: '#dc2626',
                                     borderWidth: 2,
                                     borderDash: [6, 4],
                                     label: { 
-                                        content: 'Min Min: ' + userThresholds.secondary.min_min, 
+                                        content: 'Min Min: ' + (userThresholds.secondary.min_min ?? ''), 
                                         enabled: true, 
-                                        display: true,
+                                        display: userThresholds.secondary.min_min !== null,
                                         backgroundColor: 'rgba(220, 38, 38, 0.85)',
                                         color: '#ffffff',
                                         font: { size: 10, weight: 'bold' },
@@ -2724,6 +2795,8 @@
                     y: data.alerts.values[i]
                 }));
                 primaryChart.data.datasets[3].data = alertPoints;
+            } else {
+                primaryChart.data.datasets[3].data = [];
             }
 
             if (data.frequency) {
@@ -2741,8 +2814,9 @@
                 trendBufferPrimary.push(_latestAvgP);
                 if (trendBufferPrimary.length > TREND_BUFFER_SIZE) trendBufferPrimary.shift();
             }
-            const _overThreshP = thresholds && thresholds.z_axis && thresholds.z_axis[currentMetric]
-                ? thresholds.z_axis[currentMetric].over_positive : null;
+            const _overThreshP = _parseOptNum(userThresholds.primary.max_max)
+                ?? (thresholds && thresholds.z_axis && thresholds.z_axis[currentMetric]
+                    ? _parseOptNum(thresholds.z_axis[currentMetric].over_positive) : null);
             updateTrendBadge('trendBadgePrimary', trendBufferPrimary, _overThreshP);
         }
 
@@ -2755,6 +2829,15 @@
             secondaryChart.data.datasets[0].data = data.max;
             secondaryChart.data.datasets[1].data = data.avg;
             secondaryChart.data.datasets[2].data = data.min;
+
+            if (data.alerts && data.alerts.datetimes) {
+                secondaryChart.data.datasets[3].data = data.alerts.datetimes.map((dt, i) => ({
+                    x: new Date(dt),
+                    y: data.alerts.values[i]
+                }));
+            } else {
+                secondaryChart.data.datasets[3].data = [];
+            }
 
             if (data.frequency) {
                 document.getElementById('freqBadgeSecondary').textContent = data.frequency.toFixed(1) + ' Hz';
@@ -2771,7 +2854,7 @@
                 trendBufferSecondary.push(_latestAvgS);
                 if (trendBufferSecondary.length > TREND_BUFFER_SIZE) trendBufferSecondary.shift();
             }
-            updateTrendBadge('trendBadgeSecondary', trendBufferSecondary, null);
+            updateTrendBadge('trendBadgeSecondary', trendBufferSecondary, _parseOptNum(userThresholds.secondary.max_max));
         }
 
         // ========== KPI CARD LOGIC ==========
@@ -2871,15 +2954,10 @@
         function updateThresholdLines(metric) {
             if (thresholds && thresholds.z_axis && thresholds.z_axis[metric]) {
                 const zt = thresholds.z_axis[metric];
-                defaultThresholds.primary.max_max = zt.over_positive;
-                defaultThresholds.primary.min_max = zt.under_positive;
-                defaultThresholds.primary.max_min = zt.under_negative;
-                defaultThresholds.primary.min_min = zt.over_negative;
-
-                userThresholds.primary.max_max = zt.over_positive;
-                userThresholds.primary.min_max = zt.under_positive;
-                userThresholds.primary.max_min = zt.under_negative;
-                userThresholds.primary.min_min = zt.over_negative;
+                userThresholds.primary.max_max = _parseOptNum(zt.over_positive);
+                userThresholds.primary.min_max = _parseOptNum(zt.under_positive);
+                userThresholds.primary.max_min = _parseOptNum(zt.under_negative);
+                userThresholds.primary.min_min = _parseOptNum(zt.over_negative);
                 saveThresholdsToStorage('primary');
             }
 
@@ -3047,7 +3125,7 @@
                 if (dbDot && dbTxt) {
                     if (status.db_connected) {
                         dbDot.className = 'sync-dot online';
-                        dbTxt.textContent = '• Aiven Synced';
+                        dbTxt.textContent = '• Neon Synced';
                     } else {
                         dbDot.className = 'sync-dot offline';
                         dbTxt.textContent = IS_CLOUD ? '• DB Offline' : '• Local Only';
@@ -3140,7 +3218,11 @@
             
             const parsedAlertDate = parseServerTimestamp(alert.timestamp);
             const alertTime = parsedAlertDate ? parsedAlertDate.toLocaleTimeString([], { hour12: false }) : '--:--:--';
-            let alertText = `🔴 ${alert.alert_type} at ${alertTime} | ${alert.axis}: ${parseFloat(alert.magnitude || 0).toFixed(2)} m/s²`;
+            const unit = alert.metric === 'displacement' ? 'mm' : 'm/s²';
+            let alertText = `🔴 ${alert.alert_type} at ${alertTime} | ${alert.axis}: ${parseFloat(alert.magnitude || 0).toFixed(2)} ${unit}`;
+            if (alert.threshold_value !== undefined && alert.threshold_value !== null) {
+                alertText += ` (Line: ${alert.threshold_value})`;
+            }
             if (alert.ai_confidence) {
                 alertText += ` | AI Conf: ${parseFloat(alert.ai_confidence).toFixed(1)}%`;
             }

@@ -1,15 +1,17 @@
 """
-db.py — Shared Aiven PostgreSQL module
+db.py — Shared Neon PostgreSQL module
 Used by both cloud_server.py (Render) and server.py (local hub / RPi).
 Tables managed automatically by init_db():
   1. vibration_data   (33 data columns + id, created_at)
   2. app_thresholds   (single-row JSON config + updated_at epoch for cloud<->local sync)
-  3. vibration_events (saved threshold/manual fault event CSV snapshots, bounded to max 200)
+  3. vibration_events (saved threshold/manual fault event snapshots + metadata, bounded to max 200)
 """
 
+from datetime import datetime, timezone
 import json
 import os
 import time
+import urllib.parse
 import psycopg2
 import psycopg2.pool
 import psycopg2.extensions
@@ -55,8 +57,8 @@ _INSERT_SQL = f"""
 
 def _make_dsn() -> str:
     """
-    Return DATABASE_URL with TCP keepalives so orphaned sessions from
-    restarts/deploys are freed rapidly on Aiven.
+    Return DATABASE_URL with SSL + TCP keepalives so orphaned sessions from
+    restarts/deploys are freed rapidly on Neon.
     """
     dsn = _get_database_url()
     if not dsn:
@@ -75,6 +77,23 @@ def _make_dsn() -> str:
             dsn = f"{dsn}{sep}{p}"
             sep = '&'
     return dsn
+
+
+def _strip_channel_binding(dsn: str) -> str:
+    """Fallback helper for older libpq builds that reject channel_binding query param."""
+    parts = urllib.parse.urlsplit(dsn)
+    qs = [
+        (k, v)
+        for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        if k.lower() != 'channel_binding'
+    ]
+    return urllib.parse.urlunsplit((
+        parts.scheme,
+        parts.netloc,
+        parts.path,
+        urllib.parse.urlencode(qs),
+        parts.fragment,
+    ))
 
 
 POOL_MAX_CONN = 4
@@ -109,11 +128,14 @@ class DBConnectionPool:
         self._created = 0
 
     def _connect_fresh(self):
-        return psycopg2.connect(
-            self.dsn_func(),
-            connect_timeout=10,
-            options='-c idle_in_transaction_session_timeout=15000 -c statement_timeout=20000',
-        )
+        dsn = self.dsn_func()
+        try:
+            return psycopg2.connect(dsn, connect_timeout=15)
+        except Exception as exc:
+            if 'channel_binding' in str(exc).lower():
+                fallback_dsn = _strip_channel_binding(dsn)
+                return psycopg2.connect(fallback_dsn, connect_timeout=15)
+            raise
 
     def _safe_close(self, conn):
         try:
@@ -232,7 +254,7 @@ def _put_conn(conn, close=False):
 
 
 def health_check() -> bool:
-    """Return True if Aiven PostgreSQL is reachable and responds to SELECT 1."""
+    """Return True if Neon PostgreSQL is reachable and responds to SELECT 1."""
     if not is_configured():
         return False
     conn = None
@@ -254,7 +276,7 @@ def health_check() -> bool:
 def init_db():
     """
     Create vibration_data, app_thresholds, and vibration_events tables if absent,
-    and migrate older 21-column vibration_data schemas automatically.
+    and migrate older vibration_data / vibration_events schemas automatically.
     """
     float_defs = ',\n                    '.join(f'{c} DOUBLE PRECISION' for c in FLOAT_COLUMNS)
     conn = _get_conn()
@@ -285,17 +307,36 @@ def init_db():
             """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS vibration_events (
-                    id          SERIAL PRIMARY KEY,
-                    fault_type  TEXT NOT NULL,
-                    filename    TEXT UNIQUE NOT NULL,
-                    created_at  DOUBLE PRECISION NOT NULL,
-                    source      TEXT DEFAULT 'cloud',
-                    csv_content TEXT NOT NULL
+                    id              SERIAL PRIMARY KEY,
+                    fault_type      TEXT NOT NULL,
+                    filename        TEXT UNIQUE NOT NULL,
+                    created_at      DOUBLE PRECISION NOT NULL,
+                    event_time      TEXT,
+                    source          TEXT DEFAULT 'cloud',
+                    axis            TEXT,
+                    metric          TEXT,
+                    threshold_level TEXT,
+                    threshold_value DOUBLE PRECISION,
+                    measured_value  DOUBLE PRECISION,
+                    csv_content     TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_events_created ON vibration_events(created_at DESC);
             """)
+            event_extra_cols = (
+                ("event_time", "TEXT"),
+                ("source", "TEXT DEFAULT 'cloud'"),
+                ("axis", "TEXT"),
+                ("metric", "TEXT"),
+                ("threshold_level", "TEXT"),
+                ("threshold_value", "DOUBLE PRECISION"),
+                ("measured_value", "DOUBLE PRECISION"),
+            )
+            for ecol, etype in event_extra_cols:
+                cur.execute(
+                    f"ALTER TABLE vibration_events ADD COLUMN IF NOT EXISTS {ecol} {etype}"
+                )
             conn.commit()
-        print(f"[DB] Tables ready ({len(DB_COLUMNS)} data columns + thresholds + events).")
+        print(f"[DB] Neon tables ready ({len(DB_COLUMNS)} data columns + thresholds + events).")
     except Exception as e:
         conn_broken = True
         try:
@@ -315,7 +356,7 @@ def _complete_row(row_dict: dict) -> dict:
 
 
 def insert_row(row_dict: dict):
-    """Insert one parsed row into Aiven (skips duplicate time_sec cleanly)."""
+    """Insert one parsed row into Neon (skips duplicate time_sec cleanly)."""
     conn = _get_conn()
     conn_broken = False
     try:
@@ -360,7 +401,7 @@ def insert_many_rows(rows: list):
 
 # ================= READ =================
 def get_latest_timestamp() -> float:
-    """Return the max time_sec stored in Aiven, or 0.0 if empty."""
+    """Return the max time_sec stored in Neon, or 0.0 if empty."""
     conn = _get_conn()
     conn_broken = False
     try:
@@ -513,7 +554,7 @@ def delete_rows_before_epoch(epoch_time: float) -> int:
             deleted = cur.rowcount
             conn.commit()
         if deleted:
-            print(f"[DB] Retention purge: {deleted} rows removed from Aiven (epoch <= {epoch_time:.0f}).")
+            print(f"[DB] Retention purge: {deleted} rows removed from Neon (epoch <= {epoch_time:.0f}).")
         return deleted
     except Exception as e:
         conn_broken = True
@@ -549,7 +590,7 @@ def get_row_count() -> int:
 
 
 def delete_oldest_rows(n: int) -> int:
-    """Delete n oldest rows by time_sec when buffer exceeds MAX_AIVEN_ROWS."""
+    """Delete n oldest rows by time_sec when buffer exceeds MAX_DB_ROWS."""
     conn = _get_conn()
     conn_broken = False
     try:
@@ -580,7 +621,7 @@ def delete_oldest_rows(n: int) -> int:
 
 # ================= SHARED THRESHOLDS (WEB <-> LOCAL SYNC) =================
 def save_thresholds(thresholds_dict: dict, updated_at: float | None = None) -> float:
-    """Upsert global thresholds JSON into Aiven app_thresholds (id=1). Returns updated_at."""
+    """Upsert global thresholds JSON into Neon app_thresholds (id=1). Returns updated_at."""
     ts = float(updated_at) if updated_at is not None else time.time()
     payload = json.dumps(thresholds_dict)
     conn = _get_conn()
@@ -609,7 +650,7 @@ def save_thresholds(thresholds_dict: dict, updated_at: float | None = None) -> f
 
 
 def load_thresholds():
-    """Return (thresholds_dict, updated_at) from Aiven, or (None, 0.0) if not set."""
+    """Return (thresholds_dict, updated_at) from Neon, or (None, 0.0) if not set."""
     conn = _get_conn()
     conn_broken = False
     try:
@@ -632,18 +673,38 @@ def load_thresholds():
 
 
 # ================= SHARED EVENTS (CLOUD <-> LOCAL SYNC) =================
-def save_event(fault_type: str, filename: str, csv_content: str, source: str = 'cloud', max_events: int = 200) -> bool:
-    """Store an event CSV snapshot in Aiven and cap stored rows to max_events."""
+def save_event(
+    fault_type: str,
+    filename: str,
+    csv_content: str,
+    source: str = 'cloud',
+    max_events: int = 200,
+    *,
+    axis: str | None = None,
+    metric: str | None = None,
+    threshold_level: str | None = None,
+    threshold_value: float | None = None,
+    measured_value: float | None = None,
+    event_time: str | None = None,
+) -> bool:
+    """Store an event snapshot + metadata in Neon and cap stored rows to max_events."""
     created_at = time.time()
+    iso_time = event_time or datetime.fromtimestamp(created_at, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     conn = _get_conn()
     conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO vibration_events (fault_type, filename, created_at, source, csv_content)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO vibration_events (
+                    fault_type, filename, created_at, event_time, source,
+                    axis, metric, threshold_level, threshold_value, measured_value, csv_content
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (filename) DO NOTHING
-            """, (fault_type, filename, created_at, source, csv_content))
+            """, (
+                fault_type, filename, created_at, iso_time, source,
+                axis, metric, threshold_level, threshold_value, measured_value, csv_content,
+            ))
             if max_events > 0:
                 cur.execute("""
                     DELETE FROM vibration_events
@@ -654,6 +715,7 @@ def save_event(fault_type: str, filename: str, csv_content: str, source: str = '
                     )
                 """, (int(max_events),))
             conn.commit()
+        print(f"[DB] Event logged to Neon: {fault_type}/{filename} (source={source})")
         return True
     except Exception as e:
         conn_broken = True
@@ -674,7 +736,8 @@ def list_events(limit: int = 200) -> list:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT fault_type, filename, created_at, source
+                SELECT fault_type, filename, created_at, event_time, source,
+                       axis, metric, threshold_level, threshold_value, measured_value
                 FROM vibration_events
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s
@@ -685,7 +748,13 @@ def list_events(limit: int = 200) -> list:
                 'fault_type': r[0],
                 'filename': r[1],
                 'created_at': float(r[2]) if r[2] is not None else 0.0,
-                'source': r[3] or 'cloud',
+                'event_time': r[3],
+                'source': r[4] or 'cloud',
+                'axis': r[5],
+                'metric': r[6],
+                'threshold_level': r[7],
+                'threshold_value': float(r[8]) if r[8] is not None else None,
+                'measured_value': float(r[9]) if r[9] is not None else None,
                 'path': f"{r[0]}/{r[1]}",
             }
             for r in rows
@@ -703,7 +772,7 @@ def list_events(limit: int = 200) -> list:
 
 
 def get_event_csv(filename: str) -> str | None:
-    """Fetch stored CSV content for an event filename from Aiven."""
+    """Fetch stored CSV content for an event filename from Neon."""
     conn = _get_conn()
     conn_broken = False
     try:
@@ -733,7 +802,9 @@ def fetch_events_since(epoch_time: float) -> list:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT fault_type, filename, created_at, source, csv_content
+                SELECT fault_type, filename, created_at, event_time, source,
+                       axis, metric, threshold_level, threshold_value, measured_value,
+                       csv_content
                 FROM vibration_events
                 WHERE created_at > %s
                 ORDER BY created_at ASC, id ASC
@@ -744,8 +815,14 @@ def fetch_events_since(epoch_time: float) -> list:
                 'fault_type': r[0],
                 'filename': r[1],
                 'created_at': float(r[2]) if r[2] is not None else 0.0,
-                'source': r[3] or 'cloud',
-                'csv_content': r[4],
+                'event_time': r[3],
+                'source': r[4] or 'cloud',
+                'axis': r[5],
+                'metric': r[6],
+                'threshold_level': r[7],
+                'threshold_value': float(r[8]) if r[8] is not None else None,
+                'measured_value': float(r[9]) if r[9] is not None else None,
+                'csv_content': r[10],
             }
             for r in rows
         ]

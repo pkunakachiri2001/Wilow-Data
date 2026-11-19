@@ -3,15 +3,16 @@ server.py — Local Hub / Raspberry Pi Receiver Server
 Optimized for continuous 24/7 operation:
   - Pure stdlib CSV + in-memory deque ring buffer (no pandas/numpy overhead)
   - Shared parsing, 4-level threshold & KPI logic via vibration_core
-  - Fast non-blocking local ingestion (/data, /upload) with async Aiven DB & FORWARD_URL push
-  - Bidirectional Web <-> Local sync via Aiven PostgreSQL:
+  - Fast non-blocking local ingestion (/data, /upload) with async Neon DB & FORWARD_URL push
+  - Bidirectional Web <-> Local sync via Neon PostgreSQL:
       * Pulls remote telemetry while enforcing retention window (never blanks web charts)
-      * Bidirectional 4-level threshold sync (app_thresholds + thresholds.json)
-      * Bidirectional event CSV snapshot sync (vibration_events + local events/)
+      * Bidirectional 4-level frontend-only threshold sync (app_thresholds + thresholds.json)
+      * Immediate event logging to Neon DB with offline queue + bidirectional event sync
   - Automatic uploads/ retention cleanup for unbounded uptime
 """
 
 from collections import deque
+import copy
 import csv
 from datetime import datetime, timedelta, timezone
 import json
@@ -26,7 +27,7 @@ try:
 except ImportError:
     pass
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 
@@ -46,7 +47,8 @@ THRESHOLDS_FILE = os.path.join(BASE_DIR, "thresholds.json")
 FORWARD_URL = os.environ.get('FORWARD_URL') or os.environ.get('REMOTE_SERVER_URL', '')
 ESP32_API_KEY = os.environ.get('ESP32_API_KEY', '')
 RPI_CLIENT_URL = os.environ.get('RPI_CLIENT_URL', '')
-AIVEN_RETENTION_MINUTES = int(os.environ.get('AIVEN_RETENTION_MINUTES', '60'))
+DB_RETENTION_MINUTES = int(os.environ.get('DB_RETENTION_MINUTES') or os.environ.get('AIVEN_RETENTION_MINUTES', '60'))
+AIVEN_RETENTION_MINUTES = DB_RETENTION_MINUTES
 UPLOAD_RETENTION_DAYS = int(os.environ.get('UPLOAD_RETENTION_DAYS', '7'))
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -58,7 +60,8 @@ os.makedirs(EVENTS_DIR, exist_ok=True)
 CSV_HEADERS = vc.CSV_HEADERS
 
 # ================= THRESHOLDS & STATE =================
-THRESHOLDS = vc.get_default_thresholds()
+# Start empty (all None): alerts/events only trigger from values set on the frontend chart lines.
+THRESHOLDS = vc.get_empty_thresholds()
 _thresholds_updated_at = 0.0
 thresh_lock = Lock()
 
@@ -98,6 +101,8 @@ latest_kpi = vc.build_kpi_snapshot(None, {}, None)
 
 _last_auto_event_time = {}
 _auto_event_lock = Lock()
+_pending_db_events = deque(maxlen=200)
+_pending_events_lock = Lock()
 
 
 # ================= LOCAL THRESHOLDS PERSISTENCE =================
@@ -111,10 +116,14 @@ def _load_local_thresholds_file():
         if isinstance(payload, dict) and 'thresholds' in payload:
             with thresh_lock:
                 vc.apply_threshold_payload(THRESHOLDS, payload['thresholds'])
-                _thresholds_updated_at = float(payload.get('updated_at', 0.0))
+                ts = float(payload.get('updated_at') or 0.0)
+                if ts <= 0.0:
+                    ts = os.path.getmtime(THRESHOLDS_FILE)
+                _thresholds_updated_at = ts
         elif isinstance(payload, dict):
             with thresh_lock:
                 vc.apply_threshold_payload(THRESHOLDS, payload)
+                _thresholds_updated_at = os.path.getmtime(THRESHOLDS_FILE)
     except Exception as e:
         print(f"[THRESHOLDS WARN] Could not load {THRESHOLDS_FILE}: {e}")
 
@@ -232,8 +241,13 @@ def _hydrate_from_master_csv():
 
 
 # ================= THRESHOLD EVALUATION & AUTO EVENTS =================
-def trigger_auto_event_creation(fault_type: str, cooldown_secs: int = 30):
-    """Automatically snapshot last 10 min on threshold breach (debounced per fault_type)."""
+def trigger_auto_event_creation(
+    fault_type: str,
+    cooldown_secs: int = 30,
+    event_meta: dict | None = None,
+    trigger_row: list | None = None,
+):
+    """Automatically snapshot last 10 min on frontend threshold breach and log to Neon DB."""
     now = time.time()
     with _auto_event_lock:
         last_time = _last_auto_event_time.get(fault_type, 0)
@@ -243,14 +257,22 @@ def trigger_auto_event_creation(fault_type: str, cooldown_secs: int = 30):
 
     def _worker():
         try:
-            success, msg = extract_and_save_event(fault_type)
+            success, msg = extract_and_save_event(
+                fault_type,
+                event_meta=event_meta,
+                trigger_row=trigger_row,
+            )
             if success:
                 print(f"[AUTO EVENT] Saved: {msg}")
-                socketio.emit('event_logged', {
+                payload = {
                     'fault_type': fault_type,
                     'message': msg,
-                    'timestamp': vc.utc_iso(time.time()),
-                })
+                    'timestamp': (event_meta or {}).get('event_time') or vc.utc_iso(time.time()),
+                }
+                if event_meta:
+                    payload['threshold_value'] = event_meta.get('threshold_value')
+                    payload['measured_value'] = event_meta.get('measured_value')
+                socketio.emit('event_logged', payload)
             else:
                 print(f"[AUTO EVENT] Notice: {msg}")
         except Exception as err:
@@ -264,8 +286,14 @@ def check_threshold_violation(max_val, min_val_or_thresh, maybe_thresh=None):
     return vc.check_threshold_violation(max_val, min_val_or_thresh, maybe_thresh)
 
 
-def _apply_reading_state(parsed: dict, epoch_t: float, data_json=None, emit_sockets: bool = True):
-    """Update latest_kpi + latest_status, check all axes, emit alert & trigger event if breached."""
+def _apply_reading_state(
+    parsed: dict,
+    epoch_t: float,
+    data_json=None,
+    emit_sockets: bool = True,
+    trigger_row: list | None = None,
+):
+    """Update latest_kpi + latest_status, check all axes against frontend lines, emit & log."""
     global _last_data_received_ts
     ts_iso = vc.utc_iso(epoch_t)
     kpi_snap = vc.build_kpi_snapshot(data_json, parsed, ts_iso)
@@ -273,9 +301,11 @@ def _apply_reading_state(parsed: dict, epoch_t: float, data_json=None, emit_sock
         latest_kpi.update(kpi_snap)
 
     with thresh_lock:
-        thresh_snap = dict(THRESHOLDS)
+        thresh_snap = copy.deepcopy(THRESHOLDS)
 
-    alert_status, alert_axis, breach_val = vc.check_all_axes_violations(parsed, thresh_snap)
+    violation = vc.check_all_axes_violations_detailed(parsed, thresh_snap)
+    alert_status = violation['level'] if violation else None
+    alert_axis = violation['axis'] if violation else None
 
     peaks = parsed.get('fft_peaks') or []
     top_freq = peaks[0][0] if peaks else (vc.to_float(parsed.get('fft1_freq')) or 0.0)
@@ -288,28 +318,38 @@ def _apply_reading_state(parsed: dict, epoch_t: float, data_json=None, emit_sock
         latest_status['frequency'] = float(top_freq) if top_freq is not None else 0.0
         latest_status['db_connected'] = DB_ENABLED
 
-        if alert_status:
-            axis_name = alert_axis or 'Z'
-            latest_status['status'] = f'{alert_status} Threshold'
+        if violation:
+            latest_status['status'] = f"{violation['level']} Threshold"
             latest_status['alert'] = True
-            latest_status['alert_type'] = f'{axis_name}-Axis {alert_status} Threshold'
+            latest_status['alert_type'] = violation['fault_type']
             latest_status['alert_time'] = ts_iso
         else:
             latest_status['status'] = 'Normal'
             latest_status['alert'] = False
             latest_status['alert_type'] = None
 
-    if alert_status and emit_sockets:
-        axis_name = alert_axis or 'Z'
-        mag_val = breach_val if breach_val is not None else (max_az or 0.0)
+    if violation and emit_sockets:
+        fault_type = violation['fault_type']
+        event_meta = {
+            'axis': violation['axis'],
+            'metric': violation['metric'],
+            'threshold_level': violation['level'],
+            'threshold_value': violation['threshold_value'],
+            'measured_value': violation['measured_value'],
+            'event_time': ts_iso,
+        }
+        mag_val = violation['measured_value'] if violation['measured_value'] is not None else (max_az or 0.0)
         socketio.emit('alert_notification', {
-            'alert_type': f'{axis_name}-Axis {alert_status} Threshold',
+            'alert_type': fault_type,
             'timestamp': ts_iso,
             'magnitude': mag_val,
-            'axis': axis_name,
+            'axis': violation['axis'],
+            'metric': violation['metric'],
+            'threshold_level': violation['level'],
+            'threshold_value': violation['threshold_value'],
             'ai_confidence': None,
         })
-        trigger_auto_event_creation(f"{axis_name}-Axis {alert_status} Threshold")
+        trigger_auto_event_creation(fault_type, event_meta=event_meta, trigger_row=trigger_row)
 
     return alert_status, alert_axis
 
@@ -334,7 +374,7 @@ def _append_row_locally(norm_row: list, csv_row: list, date_str: str):
 
 
 def _push_remote_async(parsed: dict, date_str: str, epoch_time: float, filename: str, csv_content: str | None = None):
-    """Non-blocking background push to Aiven DB and optional FORWARD_URL."""
+    """Non-blocking background push to Neon DB and optional FORWARD_URL."""
     def _worker():
         if DB_ENABLED:
             try:
@@ -356,15 +396,16 @@ def _push_remote_async(parsed: dict, date_str: str, epoch_time: float, filename:
 
 
 def store_teensy_data(filename: str, parsed: dict, date_str: str, epoch_time: float, csv_content: str | None = None):
-    """Write row locally synchronously, push remotely asynchronously. Returns (alert_status, alert_axis)."""
+    """Write row locally synchronously, push remotely asynchronously. Returns (norm_row, alert_status, alert_axis)."""
     csv_row = vc.parsed_to_csv_row(parsed, date_str, epoch_time)
     norm_row = vc.normalize_row_tuple(csv_row)
     _append_row_locally(norm_row, csv_row, date_str)
     _push_remote_async(parsed, date_str, epoch_time, filename, csv_content=csv_content)
     print(f"[STORED] {filename} -> {date_str}")
     with thresh_lock:
-        alert_status, alert_axis, _ = vc.check_all_axes_violations(parsed, THRESHOLDS)
-    return alert_status, alert_axis
+        thresh_snap = copy.deepcopy(THRESHOLDS)
+    alert_status, alert_axis, _ = vc.check_all_axes_violations(parsed, thresh_snap)
+    return alert_status, alert_axis, norm_row
 
 
 # ================= DATA QUERY (IN-MEMORY + DATE CSVs) =================
@@ -524,9 +565,14 @@ def get_axis_data(axis='Z', metric='acceleration', last_n_minutes=None, start_ti
         return None
 
 
-# ================= EVENT EXTRACTION (LOCAL + CLOUD SYNC) =================
-def extract_and_save_event(fault_type: str):
-    """Save last 10 minutes as a canonical 33-col event CSV locally and push to Aiven."""
+# ================= EVENT EXTRACTION (LOCAL + NEON DB) =================
+def extract_and_save_event(
+    fault_type: str,
+    event_meta: dict | None = None,
+    trigger_row: list | None = None,
+    allow_empty: bool = False,
+):
+    """Save last 10 minutes as a canonical 33-col event CSV locally and log immediately to Neon DB."""
     try:
         safe_fault_name = vc.sanitize_fault_name(fault_type)
         events_subdir = os.path.join(EVENTS_DIR, safe_fault_name)
@@ -537,13 +583,15 @@ def extract_and_save_event(fault_type: str):
         if not buf and os.path.exists(MASTER_CSV):
             with csv_lock:
                 buf = _read_csv_rows(MASTER_CSV)
-        if not buf:
-            return False, "No data available."
 
-        max_t = max(r[1] for r in buf)
-        cutoff = max_t - (10 * 60)
-        event_rows = sorted((r for r in buf if r[1] >= cutoff), key=lambda r: r[1])
-        if not event_rows:
+        event_rows = []
+        if buf:
+            max_t = max(r[1] for r in buf)
+            cutoff = max_t - (10 * 60)
+            event_rows = sorted((r for r in buf if r[1] >= cutoff), key=lambda r: r[1])
+        if not event_rows and trigger_row is not None:
+            event_rows = [trigger_row]
+        if not event_rows and not allow_empty:
             return False, "No data available in the last 10 minutes."
 
         csv_content = vc.rows_to_csv_string(event_rows)
@@ -555,13 +603,16 @@ def extract_and_save_event(fault_type: str):
         with open(filepath, 'w', encoding='utf-8', newline='') as f:
             f.write(csv_content)
 
-        if DB_ENABLED:
-            def _push_ev():
-                try:
-                    _db.save_event(safe_fault_name, filename, csv_content, source='local')
-                except Exception as ev_err:
-                    print(f"[EVENT SYNC WARN] Could not push event to Aiven: {ev_err}")
-            threading.Thread(target=_push_ev, daemon=True).start()
+        meta = dict(event_meta or {})
+        if DB_ENABLED or _db.is_configured():
+            db_ok = False
+            try:
+                db_ok = _db.save_event(safe_fault_name, filename, csv_content, source='local', **meta)
+            except Exception as ev_err:
+                print(f"[EVENT DB WARN] Could not log event to Neon: {ev_err}")
+            if not db_ok:
+                with _pending_events_lock:
+                    _pending_db_events.append((safe_fault_name, filename, csv_content, meta))
 
         return True, f"Event saved successfully to {os.path.join('events', safe_fault_name, filename)}"
     except Exception as e:
@@ -569,7 +620,7 @@ def extract_and_save_event(fault_type: str):
         return False, str(e)
 
 
-# ================= AIVEN SYNC, RPi PULL & HOUSEKEEPING =================
+# ================= NEON SYNC, RPi PULL & HOUSEKEEPING =================
 def _pull_from_rpi(last_local_epoch: float):
     """Layer 2 recovery: pull missed CSV files directly from RPi client if configured."""
     if not RPI_CLIENT_URL:
@@ -607,46 +658,75 @@ def _pull_from_rpi(last_local_epoch: float):
         return 0
 
 
-def _sync_thresholds_with_aiven():
-    """Keep 4-level thresholds synchronized bidirectionally between local & Aiven DB."""
+def _sync_thresholds_with_db():
+    """Keep 4-level frontend thresholds synchronized bidirectionally between local & Neon DB."""
     global THRESHOLDS, _thresholds_updated_at
     if not DB_ENABLED:
         return
     try:
         db_thresh, db_ts = _db.load_thresholds()
-        if db_thresh and db_ts > _thresholds_updated_at:
+        if db_thresh is not None and db_ts > _thresholds_updated_at:
             with thresh_lock:
                 vc.apply_threshold_payload(THRESHOLDS, db_thresh)
                 _thresholds_updated_at = db_ts
-                payload = json.loads(json.dumps(THRESHOLDS))
+                payload = copy.deepcopy(THRESHOLDS)
             _save_local_thresholds_file(payload, _thresholds_updated_at)
             _apply_existing_status_threshold_recheck()
-            socketio.emit('thresholds_updated', payload)
+            emit_payload = copy.deepcopy(payload)
+            emit_payload['configured'] = _thresholds_updated_at > 0.0
+            emit_payload['updated_at'] = _thresholds_updated_at
+            socketio.emit('thresholds_updated', emit_payload)
         elif _thresholds_updated_at > db_ts:
             with thresh_lock:
-                payload = json.loads(json.dumps(THRESHOLDS))
+                payload = copy.deepcopy(THRESHOLDS)
                 ts = _thresholds_updated_at
             _db.save_thresholds(payload, ts)
     except Exception as e:
         print(f"[SYNC THRESHOLDS WARN] {e}")
 
 
+_sync_thresholds_with_aiven = _sync_thresholds_with_db
+
+
 def _apply_existing_status_threshold_recheck():
-    """Update alert indicator immediately after synced threshold change if data exists."""
+    """Update alert indicator immediately after synced threshold change or clear."""
     with data_lock:
-        if not RECENT_ROWS:
-            return
-        newest = RECENT_ROWS[-1]
-    parsed = vc.row_tuple_to_parsed_dict(newest)
-    _apply_reading_state(parsed, newest[1], data_json=None, emit_sockets=False)
+        newest = RECENT_ROWS[-1] if RECENT_ROWS else None
+    if newest is not None:
+        parsed = vc.row_tuple_to_parsed_dict(newest)
+        _apply_reading_state(parsed, newest[1], data_json=None, emit_sockets=False)
+        return
+    with status_lock:
+        if latest_status.get('alert'):
+            latest_status['alert'] = False
+            latest_status['alert_type'] = None
+            if latest_status.get('timestamp'):
+                latest_status['status'] = 'Normal'
 
 
-def _sync_events_from_aiven():
-    """Download any cloud-created events since _last_synced_event_ts into local events/ folder."""
+def _sync_events_with_db():
+    """Flush any offline local events up to Neon and download cloud-created events."""
     global _last_synced_event_ts
     if not DB_ENABLED:
         return
     try:
+        pending = []
+        with _pending_events_lock:
+            while _pending_db_events:
+                pending.append(_pending_db_events.popleft())
+
+        for idx, (fault_name, fname, content, meta) in enumerate(pending):
+            ok = False
+            try:
+                ok = _db.save_event(fault_name, fname, content, source='local', **(meta or {}))
+            except Exception as push_err:
+                print(f"[SYNC EVENTS WARN] Retry save_event failed: {push_err}")
+            if not ok:
+                with _pending_events_lock:
+                    for item in pending[idx:]:
+                        _pending_db_events.append(item)
+                break
+
         events = _db.fetch_events_since(_last_synced_event_ts)
         for ev in events:
             safe_fault = vc.sanitize_fault_name(ev['fault_type'])
@@ -660,7 +740,7 @@ def _sync_events_from_aiven():
                 socketio.emit('event_logged', {
                     'fault_type': safe_fault,
                     'message': f"Synced from cloud: {safe_fault}/{fname}",
-                    'timestamp': vc.utc_iso(ev.get('created_at') or time.time()),
+                    'timestamp': ev.get('event_time') or vc.utc_iso(ev.get('created_at') or time.time()),
                 })
             if ev.get('created_at', 0.0) > _last_synced_event_ts:
                 _last_synced_event_ts = ev['created_at']
@@ -668,13 +748,16 @@ def _sync_events_from_aiven():
         print(f"[SYNC EVENTS WARN] {e}")
 
 
-def sync_from_aiven():
+_sync_events_from_aiven = _sync_events_with_db
+
+
+def sync_from_db():
     """
-    Synchronize telemetry, thresholds, and events with Aiven PostgreSQL:
+    Synchronize telemetry, thresholds, and events with Neon PostgreSQL:
       1. Pull rows newer than _last_local_epoch and store locally (CSV + RECENT_ROWS)
       2. Update local KPI + status + threshold check from newest synced row
-      3. Purge ONLY rows older than AIVEN_RETENTION_MINUTES so web charts keep live history
-      4. Sync 4-level thresholds bidirectionally & download cloud-created event CSVs
+      3. Purge ONLY rows older than DB_RETENTION_MINUTES so web charts keep live history
+      4. Sync 4-level frontend thresholds bidirectionally & flush/pull event CSVs
     """
     global _last_local_epoch
     if not DB_ENABLED:
@@ -705,12 +788,18 @@ def sync_from_aiven():
 
             if newest_norm is not None:
                 parsed = vc.row_tuple_to_parsed_dict(newest_norm)
-                _apply_reading_state(parsed, newest_norm[1], data_json=None, emit_sockets=True)
+                _apply_reading_state(
+                    parsed,
+                    newest_norm[1],
+                    data_json=None,
+                    emit_sockets=True,
+                    trigger_row=newest_norm,
+                )
                 socketio.emit('data_update', {'type': 'sync', 'count': len(rows)})
 
-        # Retention purge: keep recent AIVEN_RETENTION_MINUTES in Aiven for web dashboard!
+        # Retention purge: keep recent DB_RETENTION_MINUTES in Neon for web dashboard!
         if max_synced_epoch > 0:
-            retention_cutoff = time.time() - (AIVEN_RETENTION_MINUTES * 60.0)
+            retention_cutoff = time.time() - (DB_RETENTION_MINUTES * 60.0)
             purge_before = min(max_synced_epoch, retention_cutoff)
             if purge_before > 0:
                 try:
@@ -718,11 +807,14 @@ def sync_from_aiven():
                 except Exception as del_err:
                     print(f"[SYNC] Purge warning (non-fatal): {del_err}")
 
-        _sync_thresholds_with_aiven()
-        _sync_events_from_aiven()
+        _sync_thresholds_with_db()
+        _sync_events_with_db()
         _pull_from_rpi(last_epoch)
     except Exception as e:
-        print(f"[SYNC ERROR] Could not sync from Aiven: {e} — continuing locally.")
+        print(f"[SYNC ERROR] Could not sync from Neon: {e} — continuing locally.")
+
+
+sync_from_aiven = sync_from_db
 
 
 def cleanup_old_uploads():
@@ -748,7 +840,7 @@ def cleanup_old_uploads():
 
 
 def sync_loop():
-    """Continuous 24/7 background loop for Aiven sync, DB reconnect, and disk cleanup."""
+    """Continuous 24/7 background loop for Neon sync, DB reconnect, and disk cleanup."""
     global DB_ENABLED, _db_reconnect_ts
     print("[SYNC] Background sync thread started.")
     last_cleanup = 0.0
@@ -762,12 +854,12 @@ def sync_loop():
                     DB_ENABLED = True
                     with status_lock:
                         latest_status['db_connected'] = True
-                    print("[LOCAL] Reconnected to Aiven DB.")
+                    print("[LOCAL] Reconnected to Neon DB.")
                 except Exception:
                     pass
 
             if DB_ENABLED:
-                sync_from_aiven()
+                sync_from_db()
 
             if now - last_cleanup >= 3600.0:
                 last_cleanup = now
@@ -786,15 +878,15 @@ def start_background_tasks():
             DB_ENABLED = True
             with status_lock:
                 latest_status['db_connected'] = True
-            print("[LOCAL] Aiven DB enabled.")
+            print("[LOCAL] Neon DB enabled.")
         except Exception as err:
             DB_ENABLED = False
-            print(f"[LOCAL WARNING] Aiven DB init failed: {err} — will retry automatically.")
+            print(f"[LOCAL WARNING] Neon DB init failed: {err} — will retry automatically.")
     else:
         print("[LOCAL] DATABASE_URL not set — running in local-only mode.")
 
     if DB_ENABLED:
-        sync_from_aiven()
+        sync_from_db()
     threading.Thread(target=sync_loop, daemon=True).start()
 
 
@@ -855,8 +947,14 @@ def upload():
         parsed = vc.parse_teensy_string(csv_content)
         date_str, epoch_time = vc.epoch_from_filename(safe_name)
 
-        store_teensy_data(safe_name, parsed, date_str, epoch_time, csv_content=csv_content)
-        alert_status, alert_axis = _apply_reading_state(parsed, epoch_time, data_json=None, emit_sockets=True)
+        _, _, trigger_row = store_teensy_data(safe_name, parsed, date_str, epoch_time, csv_content=csv_content)
+        alert_status, alert_axis = _apply_reading_state(
+            parsed,
+            epoch_time,
+            data_json=None,
+            emit_sockets=True,
+            trigger_row=trigger_row,
+        )
 
         socketio.emit('data_update', {'type': 'file', 'filename': safe_name})
         return jsonify({"status": "received", "date": date_str, "alert": alert_status, "axis": alert_axis})
@@ -885,8 +983,14 @@ def receive_esp32_data():
             print(f"[RPi Receiver WARNING] Could not write file {csv_filepath}: {fe}")
 
         parsed = vc.parse_teensy_string(csv_content)
-        store_teensy_data(filename, parsed, date_str, epoch_t, csv_content=csv_content)
-        alert_status, alert_axis = _apply_reading_state(parsed, epoch_t, data_json=data, emit_sockets=True)
+        _, _, trigger_row = store_teensy_data(filename, parsed, date_str, epoch_t, csv_content=csv_content)
+        alert_status, alert_axis = _apply_reading_state(
+            parsed,
+            epoch_t,
+            data_json=data,
+            emit_sockets=True,
+            trigger_row=trigger_row,
+        )
 
         socketio.emit('data_update', {
             'type': 'esp32_direct',
@@ -948,7 +1052,7 @@ def api_thresholds():
             data = request.get_json(silent=True) or {}
             with thresh_lock:
                 vc.apply_threshold_payload(THRESHOLDS, data)
-                payload = json.loads(json.dumps(THRESHOLDS))
+                payload = copy.deepcopy(THRESHOLDS)
                 _thresholds_updated_at = time.time()
                 ts = _thresholds_updated_at
 
@@ -960,13 +1064,20 @@ def api_thresholds():
                     print(f"[THRESHOLDS SYNC WARN] {db_err}")
 
             _apply_existing_status_threshold_recheck()
-            socketio.emit('thresholds_updated', payload)
-            return jsonify({"status": "success", "thresholds": payload})
+            emit_payload = copy.deepcopy(payload)
+            emit_payload['configured'] = True
+            emit_payload['updated_at'] = ts
+            socketio.emit('thresholds_updated', emit_payload)
+            return jsonify({"status": "success", "thresholds": payload, "configured": True, "updated_at": ts})
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 400
 
     with thresh_lock:
-        return jsonify(json.loads(json.dumps(THRESHOLDS)))
+        payload = copy.deepcopy(THRESHOLDS)
+        ts = _thresholds_updated_at
+    payload['configured'] = ts > 0.0
+    payload['updated_at'] = ts
+    return jsonify(payload)
 
 
 @app.route("/download/<filename>")
@@ -1053,8 +1164,23 @@ def api_log_event():
         return jsonify({"error": "fault_type is required"}), 400
 
     fault_type = data['fault_type']
-    success, msg = extract_and_save_event(fault_type)
+    now_iso = vc.utc_iso(time.time())
+    success, msg = extract_and_save_event(
+        fault_type,
+        event_meta={
+            'axis': 'Manual',
+            'metric': 'manual',
+            'threshold_level': 'Manual',
+            'event_time': now_iso,
+        },
+        allow_empty=True,
+    )
     if success:
+        socketio.emit('event_logged', {
+            'fault_type': vc.sanitize_fault_name(fault_type),
+            'message': msg,
+            'timestamp': now_iso,
+        })
         return jsonify({"status": "success", "message": msg}), 200
     return jsonify({"status": "error", "message": msg}), 500
 
@@ -1070,11 +1196,14 @@ def api_list_events():
                     seen[fname] = {
                         "fault_type": fault_type,
                         "filename": fname,
+                        "source": "local",
                         "path": f"{fault_type}/{fname}",
                     }
     if DB_ENABLED:
         for item in _db.list_events(limit=200):
-            if item['filename'] not in seen:
+            if item['filename'] in seen:
+                seen[item['filename']].update({k: v for k, v in item.items() if v is not None})
+            else:
                 seen[item['filename']] = item
     files_list = sorted(seen.values(), key=lambda x: x.get('filename', ''), reverse=True)
     return jsonify(files_list)
@@ -1090,7 +1219,6 @@ def api_download_event(filepath):
     if DB_ENABLED:
         csv_content = _db.get_event_csv(safe_name)
         if csv_content is not None:
-            from flask import Response
             return Response(
                 csv_content,
                 mimetype='text/csv',
@@ -1138,8 +1266,8 @@ if __name__ == "__main__":
     print("VIBRATION MONITORING SERVER (Local Hub)")
     print(f"Listening on: 0.0.0.0:{port}")
     print(f"CSV schema: {len(CSV_HEADERS)} columns | Buffer: {len(RECENT_ROWS)} rows")
-    print(f"Aiven DB: {'Connected' if DB_ENABLED else 'Offline/Disabled'}")
-    print(f"Retention: Aiven={AIVEN_RETENTION_MINUTES}m | Uploads={UPLOAD_RETENTION_DAYS}d")
+    print(f"Neon DB: {'Connected' if DB_ENABLED else 'Offline/Disabled'}")
+    print(f"Retention: Neon={DB_RETENTION_MINUTES}m | Uploads={UPLOAD_RETENTION_DAYS}d")
     if FORWARD_URL:
         print(f"Forwarding destination: {FORWARD_URL}")
     print("=" * 60)
