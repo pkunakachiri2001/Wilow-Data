@@ -1,322 +1,129 @@
 """
 cloud_server.py — Render (Cloud) Deployment
-Identical logic to server.py but:
-  - No local CSV writes (Render filesystem is ephemeral)
-  - All storage goes to Aiven DB via db.py
-  - Reads data from Aiven DB for /api/axis_data
-  - Uses gevent async_mode for Render compatibility
-  - /health endpoint prevents Render sleep (ping via UptimeRobot)
+Optimized for continuous 24/7 operation:
+  - Gevent async mode under gunicorn on Render, clean threading fallback locally
+  - Shared core parsing/threshold/KPI logic via vibration_core
+  - 33-column storage & queries (Z/X/Y acceleration + displacement + 5 FFT peaks)
+  - Bidirectional Web <-> Local Hub sync via Aiven PostgreSQL:
+      * Live telemetry & threshold violations -> real-time Socket.IO updates
+      * Shared thresholds (app_thresholds table) -> instant Web <-> Local propagation
+      * Shared fault event CSVs (vibration_events table) -> survive ephemeral Render restarts
 """
 
-from gevent import monkey
-monkey.patch_all()  # MUST be first import — patches stdlib for async
-
-# psycopg2 is a C extension: gevent's monkey-patching does NOT make its network
-# calls cooperative, so a slow/unreachable Aiven DB would freeze the whole worker
-# (Render then reports "No open HTTP ports"). psycogreen fixes that.
 try:
-    from psycogreen.gevent import patch_psycopg
-    patch_psycopg()
+    from gevent import monkey
+    monkey.patch_all()  # MUST be first import when gevent is available
+    import gevent
+    try:
+        from psycogreen.gevent import patch_psycopg
+        patch_psycopg()
+    except ImportError:
+        print("[CLOUD WARNING] psycogreen not installed — DB calls may block event loop.", flush=True)
+    GEVENT_AVAILABLE = True
 except ImportError:
-    print("[CLOUD WARNING] psycogreen not installed — DB calls will block the event loop.", flush=True)
+    gevent = None
+    GEVENT_AVAILABLE = False
 
-from flask import Flask, request, jsonify, render_template
-from flask_socketio import SocketIO, emit
-from flask_cors import CORS
-import os
-import io
 import copy
-import math
+import os
+import threading
 import time
-import random
 from datetime import datetime, timezone
 from threading import Lock
 
-import db  # shared Aiven module
-import joblib
-import numpy as np
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory
+from flask_cors import CORS
+from flask_socketio import SocketIO, emit
+
+import db
+import vibration_core as vc
 
 # ================= CONFIGURATION =================
-STATIC_DIR   = "static"
-TEMPLATE_DIR = "templates"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
+EVENTS_DIR = os.path.join(BASE_DIR, "events")
 
-os.makedirs(STATIC_DIR,   exist_ok=True)
+os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(TEMPLATE_DIR, exist_ok=True)
 
 # ================= THRESHOLDS =================
-THRESHOLDS = {
-    'z_axis': {
-        'acceleration': {
-            'over_positive': 45.0,     # Max Max
-            'under_positive': 6.5,     # Min Max
-            'under_negative': -6.5,    # Max Min
-            'over_negative': -20.0     # Min Min
-        },
-        'displacement': {
-            'over_positive': 0.5,      # Max Max
-            'under_positive': 0.2,     # Min Max
-            'under_negative': 0.05,    # Max Min
-            'over_negative': 0.0       # Min Min
-        }
-    },
-    'x_axis': {
-        'acceleration': {
-            'over_positive': 45.0,
-            'under_positive': 6.5,
-            'under_negative': -6.5,
-            'over_negative': -20.0
-        },
-        'displacement': {
-            'over_positive': 0.5,
-            'under_positive': 0.2,
-            'under_negative': 0.05,
-            'over_negative': 0.0
-        }
-    },
-    'y_axis': {
-        'acceleration': {
-            'over_positive': 45.0,
-            'under_positive': 6.5,
-            'under_negative': -6.5,
-            'over_negative': -20.0
-        },
-        'displacement': {
-            'over_positive': 0.5,
-            'under_positive': 0.2,
-            'under_negative': 0.05,
-            'over_negative': 0.0
-        }
-    }
-}
+THRESHOLDS = vc.get_default_thresholds()
+_thresholds_updated_at = 0.0
+thresh_lock = Lock()
 
 # ================= FLASK SETUP =================
 app = Flask(__name__, static_folder=STATIC_DIR, template_folder=TEMPLATE_DIR)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'vibration-cloud-key')
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode='gevent' if GEVENT_AVAILABLE else 'threading',
+    ping_timeout=60,
+    ping_interval=25,
+)
 
-# ---- ESP32 API Key (optional but recommended) ----
-# Set ESP32_API_KEY in Render environment variables.
-# The ESP32 must send: http.addHeader("X-API-Key", "<same-key>");
-# Leave empty string to disable auth (useful during initial testing).
 ESP32_API_KEY = os.environ.get('ESP32_API_KEY', '')
 
 status_lock = Lock()
 latest_status = {
-    'timestamp':  None,
-    'status':     'Waiting for data...',
-    'alert':      None,
-    'alert_time': None,
-    'magnitude':  0,
-    'frequency':  0,
-    'ai_confidence': None,
-    'ai_status': None
-}
-
-latest_kpi = {
     'timestamp': None,
-    'displacement': {
-        'X': {'peak': None, 'p2p': None},
-        'Y': {'peak': None, 'p2p': None},
-        'Z': {'peak': None, 'p2p': None},
-    },
-    'velocity': {
-        'X': {'peak': None, 'p2p': None},
-        'Y': {'peak': None, 'p2p': None},
-        'Z': {'peak': None, 'p2p': None},
-    },
-    'acceleration': {
-        'X': {'peak': None, 'p2p': None},
-        'Y': {'peak': None, 'p2p': None},
-        'Z': {'peak': None, 'p2p': None},
-    },
+    'status': 'Waiting for data...',
+    'alert': None,
+    'alert_type': None,
+    'alert_time': None,
+    'magnitude': 0.0,
+    'frequency': 0.0,
+    'ai_confidence': None,
+    'ai_status': None,
+    'server_mode': 'cloud',
+    'db_connected': False,
 }
+
 kpi_lock = Lock()
+latest_kpi = vc.build_kpi_snapshot(None, {}, None)
 
-def _update_latest_kpi(data_json, parsed_row, ts_str):
-    global latest_kpi
-
-    def _safe(v):
-        try:
-            f = float(v)
-            return f if f != 0.0 else None
-        except (TypeError, ValueError):
-            return None
-
-    # ---- Displacement (mm) ----
-    latest_kpi['displacement']['Z']['peak'] = _safe(parsed_row.get('disp_peak_z_mm'))
-    latest_kpi['displacement']['Z']['p2p']  = _safe(parsed_row.get('disp_p2p_z_mm'))
-    latest_kpi['displacement']['X']['peak'] = _safe(parsed_row.get('disp_peak_x_mm'))
-    latest_kpi['displacement']['X']['p2p']  = _safe(parsed_row.get('disp_p2p_x_mm'))
-    latest_kpi['displacement']['Y']['peak'] = _safe(parsed_row.get('disp_peak_y_mm'))
-    latest_kpi['displacement']['Y']['p2p']  = _safe(parsed_row.get('disp_p2p_y_mm'))
-
-    # ---- Velocity (m/s) ----
-    # 1. Raw JSON if provided
-    # 2. Derived from displacement & dominant FFT frequency: v_peak = 2*pi*f * (d_mm/1000)
-    # 3. Fallback from acceleration: v_peak = a_peak / (2*pi*f)
-    freq = _safe(parsed_row.get('fft1_freq') or parsed_row.get('FFT1_Freq'))
-    if not freq or freq <= 0:
-        peaks = parsed_row.get('fft_peaks', [])
-        if peaks and len(peaks) > 0 and peaks[0][0] > 0:
-            freq = float(peaks[0][0])
-        else:
-            freq = 50.0  # nominal 50 Hz industrial baseline
-    omega = 2.0 * math.pi * freq
-
-    def _vel(axis_name, raw_axis_key):
-        # 1. Direct from raw JSON if available
-        if data_json:
-            raw = data_json.get(raw_axis_key)
-            if isinstance(raw, dict):
-                p = _safe(raw.get('peak'))
-                p2p = _safe(raw.get('p2p'))
-                if p is not None:
-                    return p, p2p
-            elif raw is not None:
-                try:
-                    f = float(raw)
-                    return round(f, 6), round(f * 2.0, 6)
-                except (TypeError, ValueError):
-                    pass
-
-        # 2. Derive from displacement (mm)
-        d_peak = _safe(parsed_row.get(f'disp_peak_{axis_name.lower()}_mm') or parsed_row.get(f'Disp_Peak_{axis_name.upper()}_mm'))
-        d_p2p  = _safe(parsed_row.get(f'disp_p2p_{axis_name.lower()}_mm') or parsed_row.get(f'Disp_P2P_{axis_name.upper()}_mm'))
-        if d_peak is not None and d_peak > 0:
-            v_peak = omega * (d_peak / 1000.0)
-            v_p2p  = omega * (d_p2p / 1000.0) if d_p2p is not None else v_peak * 2.0
-            return round(v_peak, 6), round(v_p2p, 6)
-
-        # 3. Fallback from acceleration (m/s^2)
-        max_a = _safe(parsed_row.get(f'max_a{axis_name.lower()}') or parsed_row.get(f'Max_A{axis_name.upper()}'))
-        min_a = _safe(parsed_row.get(f'min_a{axis_name.lower()}') or parsed_row.get(f'Min_A{axis_name.upper()}'))
-        if max_a is not None or min_a is not None:
-            a_peak = max(abs(max_a or 0), abs(min_a or 0))
-            if a_peak > 0:
-                v_peak = a_peak / omega
-                v_p2p  = v_peak * 2.0
-                return round(v_peak, 6), round(v_p2p, 6)
-
-        return None, None
-
-    latest_kpi['velocity']['Z']['peak'], latest_kpi['velocity']['Z']['p2p'] = _vel('Z', 'vel_z_ms')
-    latest_kpi['velocity']['X']['peak'], latest_kpi['velocity']['X']['p2p'] = _vel('X', 'vel_x_ms')
-    latest_kpi['velocity']['Y']['peak'], latest_kpi['velocity']['Y']['p2p'] = _vel('Y', 'vel_y_ms')
-
-    # ---- Acceleration (m/s^2) ----
-    def _acc_kpi(max_key, min_key):
-        max_v = _safe(parsed_row.get(max_key))
-        min_v = _safe(parsed_row.get(min_key))
-        if max_v is None and min_v is None:
-            return None, None
-        peak = None
-        p2p  = None
-        if max_v is not None and min_v is not None:
-            peak = max(abs(max_v), abs(min_v))
-            p2p  = max_v - min_v
-        elif max_v is not None:
-            peak = abs(max_v)
-        elif min_v is not None:
-            peak = abs(min_v)
-        return peak, p2p
-
-    latest_kpi['acceleration']['Z']['peak'], latest_kpi['acceleration']['Z']['p2p'] = _acc_kpi('max_az', 'min_az')
-    latest_kpi['acceleration']['X']['peak'], latest_kpi['acceleration']['X']['p2p'] = _acc_kpi('max_ax', 'min_ax')
-    latest_kpi['acceleration']['Y']['peak'], latest_kpi['acceleration']['Y']['p2p'] = _acc_kpi('max_ay', 'min_ay')
-
-    latest_kpi['timestamp'] = ts_str
-
-last_ai_auto_event_time = 0  # Timestamp of last auto-extraction
-
-# ---- Aiven transit buffer overflow protection ----
-# At ~392 bytes/row, 500k rows = ~196 MB, well within 512 MB Aiven free limit.
-# At 15k rows/day, this covers ~33 days of local server being offline.
-# When exceeded, oldest OVERFLOW_DELETE_N rows are trimmed automatically.
-MAX_AIVEN_ROWS     = 500_000
-
-# ================= AI MODEL LOADING =================
-AI_MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'anomaly_detector')
-scaler_path = os.path.join(AI_MODEL_DIR, 'scaler.joblib')
-model_path = os.path.join(AI_MODEL_DIR, 'isolation_forest_model.joblib')
-
-ai_scaler = None
-ai_model = None
-
-def _load_ai_models_async():
-    global ai_scaler, ai_model
-    try:
-        ai_scaler = joblib.load(scaler_path)
-        ai_model = joblib.load(model_path)
-        print(f"[AI MODEL] Successfully loaded Isolation Forest and Scaler from {AI_MODEL_DIR}", flush=True)
-    except Exception as e:
-        ai_scaler = None
-        ai_model = None
-        print(f"[AI MODEL ERROR] Failed to load models: {e}. AI anomaly detection disabled.", flush=True)
-
-import gevent
-# Unpickling the model is CPU-bound; run it in a real OS thread (gevent's native
-# threadpool) so the event loop keeps serving HTTP requests meanwhile.
-gevent.get_hub().threadpool.spawn(_load_ai_models_async)
-
-def evaluate_ai_anomaly(parsed):
-    if ai_model is None or ai_scaler is None:
-        return None, None
-        
-    try:
-        # Extract the exact 19 features the model was trained on
-        features = [
-            parsed.get('max_az', 0.0), parsed.get('min_az', 0.0), parsed.get('mean_az', 0.0),
-            parsed.get('std_az', 0.0), parsed.get('skewness_az', 0.0), parsed.get('kurtosis_az', 0.0),
-            parsed.get('max_ax', 0.0), parsed.get('min_ax', 0.0), parsed.get('mean_ax', 0.0)
-        ]
-        
-        # Add 5 FFT peaks
-        fft_peaks = parsed.get('fft_peaks', [])
-        for i in range(5):
-            if i < len(fft_peaks):
-                features.append(fft_peaks[i][0]) # Frequency
-                features.append(fft_peaks[i][1]) # Magnitude
-            else:
-                features.extend([0.0, 0.0])
-                
-        # Scale
-        X = np.array(features).reshape(1, -1)
-        X_scaled = ai_scaler.transform(X)
-        
-        # Evaluate
-        score = ai_model.decision_function(X_scaled)[0]
-        
-        # Convert raw score (approx -0.5 to 0.5) to confidence percentage 0-100%
-        # using a sigmoid function where score=0 is 50%.
-        confidence = 100 * (1 / (1 + np.exp(20 * score)))
-        
-        status = 'Anomaly' if confidence > 97 else 'Normal'
-        return float(confidence), status
-        
-    except Exception as e:
-        print(f"[AI EVAL ERROR] {e}")
-        return None, None
+MAX_AIVEN_ROWS = 500_000
 OVERFLOW_DELETE_N = 10_000
 
-# ================= DB INIT =================
-def _init_db_async():
-    try:
-        db.init_db()
-        print("[CLOUD] Aiven DB initialised.", flush=True)
-    except Exception as e:
-        print(f"[CLOUD WARNING] DB init failed: {e} — will retry on first request.", flush=True)
+_db_connected = False
+_last_seen_epoch = 0.0
+_last_data_received_ts = 0.0
+_last_db_sync_time = 0.0
+_connected_clients = 0
+_clients_lock = Lock()
 
-import gevent
-gevent.spawn(_init_db_async)
+_axis_data_cache = {}
+_cache_lock = Lock()
 
-
-# ================= THRESHOLD CHECK & AUTO EVENTS =================
 _last_auto_event_time = {}
 _auto_event_lock = Lock()
 
+
+def _spawn_bg(fn, *args, **kwargs):
+    """Spawn a background greenlet under gevent or daemon thread otherwise."""
+    if GEVENT_AVAILABLE and gevent is not None:
+        return gevent.spawn(fn, *args, **kwargs)
+    t = threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True)
+    t.start()
+    return t
+
+
+def _clear_axis_cache():
+    with _cache_lock:
+        _axis_data_cache.clear()
+
+
+# ================= THRESHOLD EVALUATION & AUTO EVENTS =================
 def trigger_auto_event_creation(fault_type: str, cooldown_secs: int = 30):
-    """Automatically snapshot and create an event file when a threshold is reached"""
+    """Automatically snapshot last 10 min into Aiven + local backup on threshold breach."""
     now = time.time()
     with _auto_event_lock:
         last_time = _last_auto_event_time.get(fault_type, 0)
@@ -332,341 +139,338 @@ def trigger_auto_event_creation(fault_type: str, cooldown_secs: int = 30):
                 socketio.emit('event_logged', {
                     'fault_type': fault_type,
                     'message': msg,
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    'timestamp': vc.utc_iso(time.time()),
                 })
             else:
                 print(f"[AUTO EVENT] Notice: {msg}", flush=True)
         except Exception as err:
             print(f"[AUTO EVENT ERROR] {err}", flush=True)
 
-    gevent.spawn(_worker)
+    _spawn_bg(_worker)
     return True, "Triggered"
 
 
 def check_threshold_violation(max_val, min_val_or_thresh, maybe_thresh=None):
+    return vc.check_threshold_violation(max_val, min_val_or_thresh, maybe_thresh)
+
+
+def _apply_reading_state(parsed: dict, epoch_t: float, data_json=None, emit_sockets: bool = True):
     """
-    Check 4 threshold levels (Max Max, Min Max, Max Min, Min Min):
-    - Max Max: max_val > over_positive (Upper Critical Peak)
-    - Min Max: 0 < max_val < under_positive (Upper Warning / Low Positive)
-    - Min Min: min_val < over_negative (Lower Critical Peak)
-    - Max Min: under_negative < min_val < 0 (Lower Warning / Low Negative)
+    Update latest_kpi and latest_status atomically from a parsed telemetry row,
+    evaluate 4-level thresholds across axes, emit Socket.IO notifications, and
+    trigger automatic event snapshot creation when breached.
+    Returns (alert_status, alert_axis).
     """
-    if maybe_thresh is not None:
-        min_val = min_val_or_thresh
-        thresholds = maybe_thresh
-    else:
-        thresholds = min_val_or_thresh
-        min_val = None
+    global _last_seen_epoch, _last_data_received_ts, _db_connected
 
-    if not thresholds or not isinstance(thresholds, dict):
-        return None
+    ts_iso = vc.utc_iso(epoch_t)
+    kpi_snap = vc.build_kpi_snapshot(data_json, parsed, ts_iso)
+    with kpi_lock:
+        latest_kpi.update(kpi_snap)
 
-    over_pos = thresholds.get('over_positive')
-    under_pos = thresholds.get('under_positive')
-    under_neg = thresholds.get('under_negative')
-    over_neg = thresholds.get('over_negative')
+    with thresh_lock:
+        thresh_snap = copy.deepcopy(THRESHOLDS)
 
-    # 1. Critical High (Max Max)
-    if max_val is not None and over_pos is not None and max_val > over_pos:
-        return 'Max Max'
+    alert_status, alert_axis, breach_val = vc.check_all_axes_violations(parsed, thresh_snap)
 
-    # 2. Critical Low (Min Min)
-    if min_val is not None and over_neg is not None and min_val < over_neg:
-        return 'Min Min'
+    peaks = parsed.get('fft_peaks') or []
+    top_freq = peaks[0][0] if peaks else (vc.to_float(parsed.get('fft1_freq')) or 0.0)
+    max_az = vc.to_float(parsed.get('max_az'))
 
-    # 3. Warning High (Min Max)
-    if max_val is not None and under_pos is not None and under_pos > 0 and 0 < max_val < under_pos:
-        return 'Min Max'
+    if epoch_t > _last_seen_epoch:
+        _last_seen_epoch = epoch_t
+    _last_data_received_ts = time.time()
+    _clear_axis_cache()
 
-    # 4. Warning Low (Max Min)
-    if min_val is not None and under_neg is not None and under_neg < 0 and under_neg < min_val < 0:
-        return 'Max Min'
+    with status_lock:
+        latest_status['timestamp'] = ts_iso
+        latest_status['magnitude'] = max_az if max_az is not None else 0.0
+        latest_status['frequency'] = float(top_freq) if top_freq is not None else 0.0
+        latest_status['db_connected'] = _db_connected
 
-    return None
-
-
-# ================= TEENSY FILE PARSING =================
-def parse_teensy_file(filepath):
-    data = {
-        'max_az': None, 'min_az': None, 'mean_az': None,
-        'std_az': None, 'skewness_az': None, 'kurtosis_az': None,
-        'max_ax': None, 'min_ax': None, 'mean_ax': None,
-        'fft_peaks': []
-    }
-    try:
-        with open(filepath, 'r') as f:
-            lines = f.readlines()
-
-        current_section = None
-        for line in lines:
-            line = line.strip()
-            if '=== Z-AXIS STATISTICS' in line:
-                current_section = 'z_stat'; continue
-            elif '=== X-AXIS STATISTICS' in line:
-                current_section = 'x_stat'; continue
-            elif '=== FFT PEAKS' in line:
-                current_section = 'fft'; continue
-            elif line.startswith('===') or line.startswith('Parameter') \
-                    or line.startswith('Rank') or not line:
-                continue
-
-            parts = [p.strip() for p in line.split(',')]
-
-            if current_section == 'z_stat' and len(parts) >= 2:
-                param, val_str = parts[0], parts[1]
-                try:
-                    val = float(val_str)
-                except ValueError:
-                    continue
-                mapping = {
-                    'Maximum Az': 'max_az', 'Minimum Az': 'min_az',
-                    'Mean Az': 'mean_az', 'Std Dev Az': 'std_az',
-                    'Skewness Az': 'skewness_az',
-                    'Excess Kurtosis Az': 'kurtosis_az',
-                }
-                if param in mapping:
-                    data[mapping[param]] = val
-
-            elif current_section == 'x_stat' and len(parts) >= 2:
-                param, val_str = parts[0], parts[1]
-                try:
-                    val = float(val_str)
-                except ValueError:
-                    continue
-                mapping = {
-                    'Maximum Ax': 'max_ax',
-                    'Minimum Ax': 'min_ax',
-                    'Mean Ax':    'mean_ax',
-                }
-                if param in mapping:
-                    data[mapping[param]] = val
-
-            elif current_section == 'fft' and len(parts) >= 3 and len(data['fft_peaks']) < 5:
-                try:
-                    freq = float(parts[1])
-                    mag  = float(parts[2])
-                    data['fft_peaks'].append((freq, mag))
-                except ValueError:
-                    continue
-    except Exception as e:
-        print(f"[PARSE ERROR] {filepath}: {e}")
-    return data
-
-
-def _parse_teensy_string(csv_content: str) -> dict:
-    """
-    Same logic as parse_teensy_file but operates on a string (no disk I/O).
-    Used by the /data endpoint to parse the in-memory CSV reconstructed from ESP32 JSON.
-    """
-    data = {
-        'max_az': None, 'min_az': None, 'mean_az': None,
-        'std_az': None, 'skewness_az': None, 'kurtosis_az': None,
-        'max_ax': None, 'min_ax': None, 'mean_ax': None,
-        'fft_peaks': []
-    }
-    try:
-        lines = csv_content.splitlines()
-        current_section = None
-        for line in lines:
-            line = line.strip()
-            if '=== Z-AXIS STATISTICS' in line:
-                current_section = 'z_stat'; continue
-            elif '=== X-AXIS STATISTICS' in line:
-                current_section = 'x_stat'; continue
-            elif '=== FFT PEAKS' in line:
-                current_section = 'fft'; continue
-            elif line.startswith('===') or line.startswith('Parameter') \
-                    or line.startswith('Rank') or not line:
-                continue
-
-            parts = [p.strip() for p in line.split(',')]
-
-            if current_section == 'z_stat' and len(parts) >= 2:
-                param, val_str = parts[0], parts[1]
-                try:
-                    val = float(val_str)
-                except ValueError:
-                    continue
-                mapping = {
-                    'Maximum Az': 'max_az', 'Minimum Az': 'min_az',
-                    'Mean Az': 'mean_az', 'Std Dev Az': 'std_az',
-                    'Skewness Az': 'skewness_az',
-                    'Excess Kurtosis Az': 'kurtosis_az',
-                }
-                if param in mapping:
-                    data[mapping[param]] = val
-
-            elif current_section == 'x_stat' and len(parts) >= 2:
-                param, val_str = parts[0], parts[1]
-                try:
-                    val = float(val_str)
-                except ValueError:
-                    continue
-                mapping = {
-                    'Maximum Ax': 'max_ax',
-                    'Minimum Ax': 'min_ax',
-                    'Mean Ax':    'mean_ax',
-                }
-                if param in mapping:
-                    data[mapping[param]] = val
-
-            elif current_section == 'fft' and len(parts) >= 3 and len(data['fft_peaks']) < 5:
-                try:
-                    freq = float(parts[1])
-                    mag  = float(parts[2])
-                    data['fft_peaks'].append((freq, mag))
-                except ValueError:
-                    continue
-    except Exception as e:
-        print(f"[PARSE ERROR] _parse_teensy_string: {e}")
-    return data
-
-
-def epoch_from_filename(filename):
-    try:
-        base  = os.path.splitext(os.path.basename(filename))[0]
-        parts = base.split('_')
-        if len(parts) >= 2:
-            date_str = parts[-2]
-            time_str = parts[-1]
-            dt = datetime.strptime(date_str + time_str, '%Y%m%d%H%M%S')
-            return dt.strftime('%Y-%m-%d'), dt.timestamp()
+        if alert_status:
+            axis_name = alert_axis or 'Z'
+            latest_status['status'] = f'{alert_status} Threshold'
+            latest_status['alert'] = True
+            latest_status['alert_type'] = f'{axis_name}-Axis {alert_status} Threshold'
+            latest_status['alert_time'] = ts_iso
         else:
-            raise ValueError("Filename format not recognized")
+            latest_status['status'] = 'Normal'
+            latest_status['alert'] = False
+            latest_status['alert_type'] = None
+
+    if alert_status and emit_sockets:
+        axis_name = alert_axis or 'Z'
+        mag_val = breach_val if breach_val is not None else (max_az or 0.0)
+        socketio.emit('alert_notification', {
+            'alert_type': f'{axis_name}-Axis {alert_status} Threshold',
+            'timestamp': ts_iso,
+            'magnitude': mag_val,
+            'axis': axis_name,
+            'ai_confidence': None,
+        })
+        trigger_auto_event_creation(f"{axis_name}-Axis {alert_status} Threshold")
+
+    return alert_status, alert_axis
+
+
+# ================= DB SYNC & BACKGROUND WATCHER =================
+def _load_thresholds_from_db():
+    """Sync shared thresholds from Aiven app_thresholds if newer than local copy."""
+    global THRESHOLDS, _thresholds_updated_at, _db_connected
+    if not db.is_configured():
+        return False
+    db_thresh, db_ts = db.load_thresholds()
+    _db_connected = True
+    if db_thresh and db_ts > _thresholds_updated_at:
+        with thresh_lock:
+            vc.apply_threshold_payload(THRESHOLDS, db_thresh)
+            _thresholds_updated_at = db_ts
+        _clear_axis_cache()
+        return True
+    return False
+
+
+def _sync_latest_from_db(force: bool = False, emit_sockets: bool = True):
+    """
+    Refresh latest_kpi, latest_status, and thresholds from Aiven DB.
+    Throttled to at most once per 2.0s unless force=True.
+    Returns True if a newer telemetry row was observed.
+    """
+    global _last_db_sync_time, _db_connected, _last_seen_epoch
+    now_mono = time.time()
+    if not force and (now_mono - _last_db_sync_time < 2.0):
+        return False
+    if not db.is_configured():
+        return False
+
+    _last_db_sync_time = now_mono
+    try:
+        row = db.get_latest_row_dict()
+        _db_connected = True
+        with status_lock:
+            latest_status['db_connected'] = True
+
+        if not row or not row.get('time_sec'):
+            return False
+
+        epoch_t = float(row['time_sec'])
+        if epoch_t <= _last_seen_epoch and not force:
+            return False
+
+        is_new_row = epoch_t > _last_seen_epoch
+        peaks = []
+        for n in range(1, 6):
+            f = vc.to_float(row.get(f'fft{n}_freq'))
+            m = vc.to_float(row.get(f'fft{n}_mag'))
+            if f is not None and m is not None:
+                peaks.append((f, m))
+        row_parsed = dict(row)
+        row_parsed['fft_peaks'] = peaks
+
+        _apply_reading_state(row_parsed, epoch_t, data_json=None, emit_sockets=(is_new_row and emit_sockets))
+        return is_new_row
     except Exception as e:
-        print(f"[PARSE WARNING] Could not parse date from {filename}: {e}")
-        now = datetime.now()
-        return now.strftime('%Y-%m-%d'), now.timestamp()
+        _db_connected = False
+        with status_lock:
+            latest_status['db_connected'] = False
+        print(f"[CLOUD SYNC WARN] Could not sync latest from DB: {e}", flush=True)
+        return False
+
+
+def _init_db_and_start_watcher():
+    global _db_connected
+    if not db.is_configured():
+        print("[CLOUD WARNING] DATABASE_URL not set — running without Aiven DB.", flush=True)
+        return
+
+    try:
+        db.init_db()
+        _db_connected = True
+        with status_lock:
+            latest_status['db_connected'] = True
+        print("[CLOUD] Aiven DB initialised.", flush=True)
+    except Exception as e:
+        _db_connected = False
+        print(f"[CLOUD WARNING] DB init failed: {e} — watcher will retry.", flush=True)
+
+    try:
+        _load_thresholds_from_db()
+    except Exception as e:
+        print(f"[CLOUD WARNING] Initial threshold load failed: {e}", flush=True)
+
+    _sync_latest_from_db(force=True, emit_sockets=False)
+
+    last_overflow_check = 0.0
+    while True:
+        with _clients_lock:
+            has_clients = _connected_clients > 0
+        interval = 5.0 if has_clients else 15.0
+        if GEVENT_AVAILABLE and gevent is not None:
+            gevent.sleep(interval)
+        else:
+            time.sleep(interval)
+
+        try:
+            if not _db_connected:
+                try:
+                    db.init_db()
+                    _db_connected = True
+                    with status_lock:
+                        latest_status['db_connected'] = True
+                except Exception:
+                    continue
+
+            new_data = _sync_latest_from_db(force=True)
+            if new_data:
+                socketio.emit('data_update', {'type': 'db_sync'})
+
+            thresh_changed = _load_thresholds_from_db()
+            if thresh_changed:
+                with thresh_lock:
+                    payload = copy.deepcopy(THRESHOLDS)
+                socketio.emit('thresholds_updated', payload)
+
+            now = time.time()
+            if now - last_overflow_check >= 600.0:
+                last_overflow_check = now
+                count = db.get_row_count()
+                if count > MAX_AIVEN_ROWS:
+                    trimmed = db.delete_oldest_rows(OVERFLOW_DELETE_N)
+                    print(f"[OVERFLOW] Trimmed {trimmed} oldest rows (was {count}).", flush=True)
+        except Exception as err:
+            print(f"[CLOUD WATCHER WARN] {err}", flush=True)
+
+
+if os.environ.get('TESTING') != '1':
+    _spawn_bg(_init_db_and_start_watcher)
 
 
 # ================= DATA QUERY (FROM AIVEN) =================
-_axis_data_cache = {}
-
-
 def get_axis_data(axis='Z', metric='acceleration', last_n_minutes=None, start_time=None, end_time=None):
     is_live_query = (start_time is None and end_time is None)
-    cache_key = (str(axis).upper(), str(metric).lower(), last_n_minutes or 10)
+    axis_upper = (axis or 'Z').upper()
+    metric_lower = (metric or 'acceleration').lower()
+    cache_key = (axis_upper, metric_lower, last_n_minutes or 10)
     now = time.time()
-    if is_live_query and cache_key in _axis_data_cache:
-        cached_res, cache_t = _axis_data_cache[cache_key]
-        if now - cache_t < 3.0:
-            return cached_res
+
+    if is_live_query:
+        with _cache_lock:
+            if cache_key in _axis_data_cache:
+                cached_res, cache_t = _axis_data_cache[cache_key]
+                if now - cache_t < 3.0:
+                    return cached_res
 
     try:
         rows = db.fetch_rows_for_chart(
-            axis=axis,
+            axis=axis_upper,
             start_time=start_time,
             end_time=end_time,
-            last_n_minutes=last_n_minutes
+            last_n_minutes=last_n_minutes,
         )
         if not rows:
             return None
 
-        axis_upper = (axis or 'Z').upper()
         col_idx = {col: i for i, col in enumerate(db.DB_COLUMNS)}
 
-        if metric == 'displacement':
+        if metric_lower == 'displacement':
             if axis_upper == 'Z':
-                max_idx = col_idx.get('disp_peak_z_mm', 14)
-                min_idx = col_idx.get('disp_p2p_z_mm', 15)
-                avg_idx = col_idx.get('disp_rms_z_mm', 16)
+                max_idx = col_idx['disp_peak_z_mm']
+                min_idx = col_idx['disp_p2p_z_mm']
+                avg_idx = col_idx['disp_rms_z_mm']
             elif axis_upper == 'Y':
-                max_idx = col_idx.get('disp_peak_y_mm', 20)
-                min_idx = col_idx.get('disp_p2p_y_mm', 21)
-                avg_idx = col_idx.get('disp_rms_y_mm', 22)
-            else:  # X
-                max_idx = col_idx.get('disp_peak_x_mm', 17)
-                min_idx = col_idx.get('disp_p2p_x_mm', 18)
-                avg_idx = col_idx.get('disp_rms_x_mm', 19)
-        else:  # acceleration
+                max_idx = col_idx['disp_peak_y_mm']
+                min_idx = col_idx['disp_p2p_y_mm']
+                avg_idx = col_idx['disp_rms_y_mm']
+            else:
+                max_idx = col_idx['disp_peak_x_mm']
+                min_idx = col_idx['disp_p2p_x_mm']
+                avg_idx = col_idx['disp_rms_x_mm']
+        else:
             if axis_upper == 'Z':
-                max_idx = col_idx.get('max_az', 2)
-                min_idx = col_idx.get('min_az', 3)
-                avg_idx = col_idx.get('mean_az', 4)
+                max_idx = col_idx['max_az']
+                min_idx = col_idx['min_az']
+                avg_idx = col_idx['mean_az']
             elif axis_upper == 'Y':
-                max_idx = col_idx.get('max_ay', 11)
-                min_idx = col_idx.get('min_ay', 12)
-                avg_idx = col_idx.get('mean_ay', 13)
-            else:  # X
-                max_idx = col_idx.get('max_ax', 8)
-                min_idx = col_idx.get('min_ax', 9)
-                avg_idx = col_idx.get('mean_ax', 10)
+                max_idx = col_idx['max_ay']
+                min_idx = col_idx['min_ay']
+                avg_idx = col_idx['mean_ay']
+            else:
+                max_idx = col_idx['max_ax']
+                min_idx = col_idx['min_ax']
+                avg_idx = col_idx['mean_ax']
 
-        fft_idx = col_idx.get('fft1_freq', 23)
+        fft_idx = col_idx['fft1_freq']
 
-        timestamps      = [r[1] for r in rows]
-        max_values      = [r[max_idx] for r in rows]
-        min_values      = [r[min_idx] for r in rows]
-        avg_values      = [r[avg_idx] for r in rows]
-        frequencies     = [r[fft_idx] for r in rows]
+        timestamps = [r[1] for r in rows]
+        max_values = [r[max_idx] for r in rows]
+        min_values = [r[min_idx] for r in rows]
+        avg_values = [r[avg_idx] for r in rows]
+        frequencies = [r[fft_idx] for r in rows]
 
-        datetime_labels = [
-            datetime.fromtimestamp(ts).astimezone().isoformat() for ts in timestamps
-        ]
+        datetime_labels = [vc.utc_iso(ts) for ts in timestamps]
+        valid_freqs = [float(f) for f in frequencies if f is not None]
+        avg_freq = sum(valid_freqs) / len(valid_freqs) if valid_freqs else None
 
-        valid_freqs = [f for f in frequencies if f is not None]
-        avg_freq    = sum(valid_freqs) / len(valid_freqs) if valid_freqs else None
+        with thresh_lock:
+            axis_thresh = THRESHOLDS.get(f'{axis_upper.lower()}_axis', {}).get(metric_lower)
+        alerts = vc.compute_chart_alerts(datetime_labels, max_values, min_values, axis_thresh)
 
         result = {
-            'timestamps':      timestamps,
+            'timestamps': timestamps,
             'datetime_labels': datetime_labels,
-            'max':             max_values,
-            'min':             min_values,
-            'avg':             avg_values,
-            'frequency':       float(avg_freq) if avg_freq is not None else None,
-            'axis':            axis_upper,
-            'metric':          metric,
-            'alerts':          {'datetimes': [], 'values': []}
+            'max': max_values,
+            'min': min_values,
+            'avg': avg_values,
+            'frequency': float(avg_freq) if avg_freq is not None else None,
+            'axis': axis_upper,
+            'metric': metric_lower,
+            'alerts': alerts,
         }
 
         if is_live_query:
-            _axis_data_cache[cache_key] = (result, now)
+            with _cache_lock:
+                if len(_axis_data_cache) > 32:
+                    _axis_data_cache.clear()
+                _axis_data_cache[cache_key] = (result, now)
 
         return result
     except Exception as e:
-        print(f"[ERROR] get_axis_data (cloud): {e}")
-        import traceback; traceback.print_exc()
+        print(f"[ERROR] get_axis_data (cloud): {e}", flush=True)
         return None
 
 
-# ================= EVENT EXTRACTION =================
+# ================= EVENT EXTRACTION (AIVEN DB + LOCAL BACKUP) =================
 def extract_and_save_event(fault_type: str):
+    """Snapshot the last 10 minutes as a canonical 33-col CSV in Aiven DB and local backup."""
     try:
-        # Create folder structure
-        # Safe folder name
-        safe_fault_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in fault_type).strip()
-        events_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'events', safe_fault_name)
-        os.makedirs(events_dir, exist_ok=True)
-        
-        # Fetch last 10 minutes of raw data
+        safe_fault_name = vc.sanitize_fault_name(fault_type)
         rows = db.fetch_rows_for_chart(last_n_minutes=10)
         if not rows:
             return False, "No data available in the last 10 minutes."
-            
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        csv_content = vc.rows_to_csv_string(rows)
+        now_dt = datetime.now(timezone.utc)
+        timestamp = f"{now_dt.strftime('%Y%m%d_%H%M%S')}_{now_dt.microsecond // 1000:03d}"
         filename = f"event_{timestamp}.csv"
-        filepath = os.path.join(events_dir, filename)
-        
-        # Columns from db.fetch_rows_for_chart:
-        # (date, time_sec, max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,
-        #  max_ax, min_ax, mean_ax, fft1_freq, fft1_mag, ...)
-        
-        import csv
-        with open(filepath, 'w', newline='') as f:
-            writer = csv.writer(f)
-            header = [
-                'Date', 'Time_sec', 
-                'Max_Az', 'Min_Az', 'Mean_Az', 'Std_Az', 'Skewness_Az', 'Kurtosis_Az',
-                'Max_Ax', 'Min_Ax', 'Mean_Ax',
-                'FFT1_Freq', 'FFT1_Mag', 'FFT2_Freq', 'FFT2_Mag', 'FFT3_Freq', 'FFT3_Mag',
-                'FFT4_Freq', 'FFT4_Mag', 'FFT5_Freq', 'FFT5_Mag'
-            ]
-            writer.writerow(header)
-            writer.writerows(rows)
-            
-        return True, f"Event saved successfully to {os.path.join('events', safe_fault_name, filename)}"
+
+        db_ok = False
+        if db.is_configured():
+            db_ok = db.save_event(safe_fault_name, filename, csv_content, source='cloud')
+
+        try:
+            events_dir = os.path.join(EVENTS_DIR, safe_fault_name)
+            os.makedirs(events_dir, exist_ok=True)
+            filepath = os.path.join(events_dir, filename)
+            with open(filepath, 'w', encoding='utf-8', newline='') as f:
+                f.write(csv_content)
+        except Exception as fs_err:
+            if not db_ok:
+                return False, f"Failed saving event: {fs_err}"
+
+        return True, f"Event saved successfully ({safe_fault_name}/{filename})"
     except Exception as e:
-        print(f"[ERROR] extract_and_save_event: {e}")
+        print(f"[ERROR] extract_and_save_event: {e}", flush=True)
         return False, str(e)
 
 
@@ -678,8 +482,14 @@ def home():
 
 @app.route("/health")
 def health():
-    """UptimeRobot / Render keep-alive ping endpoint."""
-    return jsonify({"status": "ok", "server": "cloud"}), 200
+    """Keep-alive and DB diagnostics endpoint."""
+    age_sec = round(time.time() - _last_data_received_ts, 1) if _last_data_received_ts > 0 else None
+    return jsonify({
+        "status": "ok",
+        "server": "cloud",
+        "db_connected": _db_connected,
+        "last_data_age_sec": age_sec,
+    }), 200
 
 
 @app.route("/api/available-dates", methods=['GET'])
@@ -694,262 +504,73 @@ def get_available_dates():
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
+        if request.is_json:
+            return receive_esp32_data()
+
         if "file" not in request.files:
             return jsonify({"error": "no file"}), 400
 
-        file     = request.files["file"]
+        file = request.files["file"]
         filename = file.filename
+        if not filename:
+            return jsonify({"error": "empty filename"}), 400
 
-        # Save to a temp location (Render has ephemeral /tmp)
-        tmp_path = f"/tmp/{filename}"
-        file.save(tmp_path)
+        csv_content = file.read().decode('utf-8', errors='replace')
+        parsed = vc.parse_teensy_string(csv_content)
+        date_str, epoch_t = vc.epoch_from_filename(filename)
 
-        parsed             = parse_teensy_file(tmp_path)
-        date_str, epoch_t  = epoch_from_filename(filename)
-
-        # Remove temp file
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-
-        # Build row dict and insert into Aiven
         row_dict = db.parsed_to_row_dict(parsed, date_str, epoch_t)
-        try:
-            db.insert_row(row_dict)
-        except Exception as db_err:
-            print(f"[CLOUD DB WARN] insert_row: {db_err}")
-
-        # ---- Overflow guard: keep Aiven lean (ring buffer) ----
-        # Only run the check every ~100 uploads to avoid hammering the DB
-        if random.randint(1, 100) == 1:
+        if db.is_configured():
             try:
-                count = db.get_row_count()
-                if count > MAX_AIVEN_ROWS:
-                    trimmed = db.delete_oldest_rows(OVERFLOW_DELETE_N)
-                    print(f"[OVERFLOW] Aiven had {count} rows (>{MAX_AIVEN_ROWS}). "
-                          f"Trimmed {trimmed} oldest rows. Local server may have been offline too long.")
-            except Exception as ov_err:
-                print(f"[OVERFLOW CHECK ERROR] {ov_err}")
+                db.insert_row(row_dict)
+            except Exception as db_err:
+                print(f"[CLOUD DB WARN] insert_row: {db_err}", flush=True)
 
-        # Threshold check on Z, X, Y
-        alert_status = None
-        alert_axis = 'Z'
-        max_az = parsed.get('max_az')
-        min_az = parsed.get('min_az')
-        if (max_az is not None or min_az is not None) and 'z_axis' in THRESHOLDS:
-            violation = check_threshold_violation(max_az, min_az, THRESHOLDS['z_axis']['acceleration'])
-            if violation:
-                alert_status = violation
-                alert_axis = 'Z'
-                print(f"[ALERT] {violation} | Max_Az={max_az} Min_Az={min_az}")
-            else:
-                print(f"[OK] Max_Az={max_az} Min_Az={min_az}")
-
-        top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
-        ts_iso = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-        with kpi_lock:
-            _update_latest_kpi(None, parsed, ts_iso)
-
-        with status_lock:
-            latest_status['timestamp'] = datetime.fromtimestamp(epoch_t).strftime('%Y-%m-%d %H:%M:%S')
-            latest_status['magnitude'] = max_az or 0
-            latest_status['frequency'] = top_freq
-
-            if alert_status:
-                latest_status['status']     = f'{alert_status} Threshold'
-                latest_status['alert']      = True
-                latest_status['alert_type'] = f'{alert_axis}-Axis {alert_status} Threshold'
-                latest_status['alert_time'] = latest_status['timestamp']
-                socketio.emit('alert_notification', {
-                    'alert_type': f'{alert_axis}-Axis {alert_status} Threshold',
-                    'timestamp':  latest_status['timestamp'],
-                    'magnitude':  max_az,
-                    'axis':       alert_axis
-                })
-                trigger_auto_event_creation(f"{alert_axis}-Axis {alert_status} Threshold")
-            else:
-                latest_status['status']     = 'Normal'
-                latest_status['alert']      = False
-                latest_status['alert_type'] = None
-
+        alert_status, alert_axis = _apply_reading_state(parsed, epoch_t, data_json=None, emit_sockets=True)
         socketio.emit('data_update', {'type': 'file', 'filename': filename})
-        return jsonify({"status": "received", "date": date_str, "alert": alert_status})
-
+        return jsonify({"status": "received", "date": date_str, "alert": alert_status, "axis": alert_axis})
     except Exception as e:
-        print(f"[ERROR] Upload: {e}")
-        import traceback; traceback.print_exc()
+        print(f"[ERROR] Upload: {e}", flush=True)
         return jsonify({"error": str(e)}), 500
 
 
-# ================= /data — ESP32 S3 DIRECT JSON ENDPOINT =================
-# Replaces the RPi middleman. Accepts the same JSON the ESP32 already sends,
-# reconstructs the CSV in memory, then runs the existing parse→DB pipeline.
 @app.route("/data", methods=["POST"])
 def receive_esp32_data():
-    # ---- API key check (set ESP32_API_KEY env var on Render to enable) ----
     if ESP32_API_KEY:
         incoming_key = request.headers.get('X-API-Key', '')
         if incoming_key != ESP32_API_KEY:
-            print(f"[SECURITY] /data blocked — wrong or missing X-API-Key from {request.remote_addr}")
+            print(f"[SECURITY] /data blocked — wrong X-API-Key from {request.remote_addr}", flush=True)
             return jsonify({"error": "Unauthorized"}), 401
     try:
         if not request.is_json:
             return jsonify({"error": "Expected JSON payload"}), 400
 
-        data     = request.get_json()
-        core_id  = data.get("core", 0)
-        samples  = data.get("samples", 0)
-        print(f"\n[ESP32 Core {core_id}] Direct JSON received (samples: {samples})")
+        data = request.get_json()
+        filename, csv_content, date_str, epoch_t = vc.reconstruct_csv_from_esp32_json(data)
+        parsed = vc.parse_teensy_string(csv_content)
 
-        # ---- Reconstruct Teensy-format CSV in memory (same as rpi_client.py) ----
-        now_str      = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename     = f"ESP32_Core{core_id}_{now_str}.csv"
-        record_start = data.get("record_start", 0)
-        record_stop  = data.get("record_stop",  0)
-        duration_s   = (record_stop - record_start) / 1000.0 \
-                       if record_stop > record_start else 0.0
-
-        freqs     = data.get("freq", [])
-        mags      = data.get("mag",  [])
-        fft_lines = [f"{i+1},{freqs[i]},{mags[i]}"
-                     for i in range(min(len(freqs), len(mags)))]
-
-        csv_lines = [
-            "=== METADATA ===",
-            "Parameter,Value,Unit",
-            f"Device ID,ESP32_Core{core_id},-",
-            "File number,0,-",
-            f"File name,{filename},-",
-            "",
-            "=== RECORDING INFO ===",
-            "Parameter,Value,Unit",
-            f"Record start,{record_start},ms from boot",
-            f"Record stop,{record_stop},ms from boot",
-            f"Duration,{duration_s:.3f},s",
-            f"Total samples,{samples},samples",
-            f"Sample rate,{data.get('sample_rate', 0.0)},Hz",
-            "",
-            "=== Z-AXIS STATISTICS ===",
-            "Parameter,Value,Unit",
-            f"Maximum Az,{data.get('max',      0.0)},m/s^2",
-            f"Minimum Az,{data.get('min',      0.0)},m/s^2",
-            f"Mean Az,{data.get('mean',        0.0)},m/s^2",
-            f"Std Dev Az,{data.get('std_dev',  0.0)},m/s^2",
-            f"Skewness Az,{data.get('skewness',0.0)},-",
-            f"Excess Kurtosis Az,{data.get('kurtosis', 0.0)},-",
-            "",
-            "=== X-AXIS STATISTICS ===",
-            "Parameter,Value,Unit",
-            f"Maximum Ax,{data.get('max_x',  0.0)},m/s^2",
-            f"Minimum Ax,{data.get('min_x',  0.0)},m/s^2",
-            f"Mean Ax,{data.get('mean_x',    0.0)},m/s^2",
-            "",
-            "=== FFT PEAKS (Z-AXIS) ===",
-            "Rank,Frequency (Hz),Magnitude",
-        ] + fft_lines + ["================================================="]
-
-        csv_content = "\n".join(csv_lines)
-
-        # ---- Parse the reconstructed CSV (using StringIO — no disk I/O) ----
-        parsed = _parse_teensy_string(csv_content)
-        date_str, epoch_t = datetime.now().strftime('%Y-%m-%d'), datetime.now().timestamp()
-
-        # ---- Insert into Aiven DB ----
         row_dict = db.parsed_to_row_dict(parsed, date_str, epoch_t)
-        try:
-            db.insert_row(row_dict)
-        except Exception as db_err:
-            print(f"[ESP32 DB WARN] insert_row: {db_err}")
-
-        # ---- Overflow guard (same as /upload) ----
-        if random.randint(1, 100) == 1:
+        if db.is_configured():
             try:
-                count = db.get_row_count()
-                if count > MAX_AIVEN_ROWS:
-                    trimmed = db.delete_oldest_rows(OVERFLOW_DELETE_N)
-                    print(f"[OVERFLOW] Trimmed {trimmed} oldest rows (was {count}).")
-            except Exception as ov_err:
-                print(f"[OVERFLOW CHECK ERROR] {ov_err}")
+                db.insert_row(row_dict)
+            except Exception as db_err:
+                print(f"[ESP32 DB WARN] insert_row: {db_err}", flush=True)
 
-        # ---- Threshold check & socket emit ----
-        alert_status = None
-        alert_axis = 'Z'
-        max_az = parsed.get('max_az')
-        min_az = parsed.get('min_az')
-        if (max_az is not None or min_az is not None) and 'z_axis' in THRESHOLDS:
-            violation = check_threshold_violation(max_az, min_az, THRESHOLDS['z_axis']['acceleration'])
-            if violation:
-                alert_status = violation
-                alert_axis = 'Z'
-                print(f"[ALERT] {violation} | Max_Az={max_az} Min_Az={min_az}")
-            else:
-                print(f"[OK] Max_Az={max_az} Min_Az={min_az}")
-
-        top_freq = parsed['fft_peaks'][0][0] if parsed['fft_peaks'] else 0
-        ts_iso = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-        with kpi_lock:
-            _update_latest_kpi(data, parsed, ts_iso)
-
-        # ---- AI Model Check & Auto-Trigger ----
-        global last_ai_auto_event_time
-        ai_confidence, ai_status = evaluate_ai_anomaly(parsed)
-        
-        if ai_status == 'Anomaly' and ai_confidence > 97.0:
-            now_ts = datetime.now().timestamp()
-            # 10 minute cooldown (600 seconds)
-            if (now_ts - last_ai_auto_event_time) > 600:
-                print(f"[AI AUTO-TRIGGER] Anomaly detected with {ai_confidence:.1f}% confidence. Extracting event...")
-                success, msg = extract_and_save_event("Unknown Event Detected")
-                if success:
-                    last_ai_auto_event_time = now_ts
-                    print(f"[AI AUTO-TRIGGER] {msg}")
-                else:
-                    print(f"[AI AUTO-TRIGGER] Failed: {msg}")
-        
-        with status_lock:
-            latest_status['timestamp'] = datetime.fromtimestamp(epoch_t).strftime('%Y-%m-%d %H:%M:%S')
-            latest_status['magnitude'] = max_az or 0
-            latest_status['frequency'] = top_freq
-            latest_status['ai_confidence'] = ai_confidence
-            latest_status['ai_status'] = ai_status
-
-            if alert_status or (ai_status == 'Anomaly'):
-                cause = alert_status if alert_status else 'AI Model'
-                latest_status['status']     = f'{cause} Threshold'
-                latest_status['alert']      = True
-                latest_status['alert_type'] = f'{alert_axis}-Axis {cause} Threshold'
-                latest_status['alert_time'] = latest_status['timestamp']
-                socketio.emit('alert_notification', {
-                    'alert_type': f'{alert_axis}-Axis {cause} Threshold',
-                    'timestamp':  latest_status['timestamp'],
-                    'magnitude':  max_az,
-                    'axis':       alert_axis,
-                    'ai_confidence': ai_confidence
-                })
-                if alert_status:
-                    trigger_auto_event_creation(f"{alert_axis}-Axis {alert_status} Threshold")
-            else:
-                latest_status['status']     = 'Normal'
-                latest_status['alert']      = False
-                latest_status['alert_type'] = None
-
+        alert_status, alert_axis = _apply_reading_state(parsed, epoch_t, data_json=data, emit_sockets=True)
         socketio.emit('data_update', {'type': 'esp32_direct', 'filename': filename})
-        return jsonify({"status": "received", "filename": filename, "alert": alert_status}), 200
-
+        return jsonify({"status": "received", "filename": filename, "alert": alert_status, "axis": alert_axis}), 200
     except Exception as e:
-        print(f"[ERROR] /data: {e}")
-        import traceback; traceback.print_exc()
+        print(f"[ERROR] /data: {e}", flush=True)
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/axis_data")
 def api_axis_data():
-    axis       = request.args.get('axis', 'Z')
-    metric     = request.args.get('metric', 'acceleration')
-    minutes    = request.args.get('minutes')
+    axis = request.args.get('axis', 'Z')
+    metric = request.args.get('metric', 'acceleration')
+    minutes = request.args.get('minutes')
     start_time = request.args.get('start_time')
-    end_time   = request.args.get('end_time')
+    end_time = request.args.get('end_time')
 
     if start_time and end_time:
         data = get_axis_data(axis, metric=metric, start_time=start_time, end_time=end_time)
@@ -962,75 +583,13 @@ def api_axis_data():
     return jsonify(data)
 
 
-_last_db_sync_time = 0.0
-
-def _sync_latest_from_db(force=False):
-    """
-    Fetch newest row from Aiven DB and refresh both latest_kpi and latest_status.
-    Throttled to run at most once every 2.0 seconds unless force=True.
-    """
-    global _last_db_sync_time, latest_kpi, latest_status
-    now_mono = time.time()
-    if not force and (now_mono - _last_db_sync_time < 2.0):
-        return
-
-    _last_db_sync_time = now_mono
-    try:
-        row = db.get_latest_row_dict()
-        if not row or not row.get('time_sec'):
-            return
-
-        epoch_t = float(row['time_sec'])
-        ts_utc = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-        ts_display = datetime.fromtimestamp(epoch_t, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-
-        with kpi_lock:
-            _update_latest_kpi(None, row, ts_utc)
-
-        max_az = row.get('max_az')
-        min_az = row.get('min_az')
-        top_freq = row.get('fft1_freq') or 0.0
-
-        alert_status = None
-        if (max_az is not None or min_az is not None) and 'z_axis' in THRESHOLDS:
-            violation = check_threshold_violation(
-                float(max_az) if max_az is not None else None,
-                float(min_az) if min_az is not None else None,
-                THRESHOLDS['z_axis']['acceleration']
-            )
-            if violation:
-                alert_status = violation
-
-        ai_confidence, ai_status = evaluate_ai_anomaly(row)
-
-        with status_lock:
-            latest_status['timestamp'] = ts_display
-            latest_status['magnitude'] = float(max_az) if max_az is not None else 0.0
-            latest_status['frequency'] = float(top_freq) if top_freq is not None else 0.0
-            latest_status['ai_confidence'] = ai_confidence
-            latest_status['ai_status'] = ai_status
-
-            if alert_status or (ai_status == 'Anomaly'):
-                cause = alert_status if alert_status else 'AI Model'
-                latest_status['status']     = f'{cause} Threshold'
-                latest_status['alert']      = True
-                latest_status['alert_type'] = f'Z-Axis {cause} Threshold'
-                latest_status['alert_time'] = ts_display
-                if alert_status:
-                    trigger_auto_event_creation(f"Z-Axis {alert_status} Threshold")
-            else:
-                latest_status['status']     = 'Normal'
-                latest_status['alert']      = False
-                latest_status['alert_type'] = None
-    except Exception as e:
-        print(f"[CLOUD SYNC WARN] Could not sync latest from DB: {e}")
-
-
 @app.route("/api/latest_status")
 def api_latest_status():
     _sync_latest_from_db()
     with status_lock:
-        return jsonify(latest_status)
+        snap = dict(latest_status)
+        snap['db_connected'] = _db_connected
+        return jsonify(snap)
 
 
 @app.route("/favicon.ico")
@@ -1047,115 +606,107 @@ def api_latest_kpi():
 
 @app.route("/api/thresholds", methods=["GET", "POST"])
 def api_thresholds():
-    global THRESHOLDS
+    global THRESHOLDS, _thresholds_updated_at
     if request.method == "POST":
         try:
             data = request.get_json(silent=True) or {}
-            for axis, metrics in data.items():
-                if axis in THRESHOLDS and isinstance(metrics, dict):
-                    for metric, vals in metrics.items():
-                        if metric in THRESHOLDS[axis] and isinstance(vals, dict):
-                            THRESHOLDS[axis][metric].update(vals)
-            if 'axis' in data:
-                axis = data['axis']
-                metric = data.get('metric', 'acceleration')
-                if axis in THRESHOLDS and metric in THRESHOLDS[axis]:
-                    # Max Max (Upper Critical Limit)
-                    if 'max_max' in data and data['max_max'] is not None:
-                        THRESHOLDS[axis][metric]['over_positive'] = float(data['max_max'])
-                    elif 'over_positive' in data and data['over_positive'] is not None:
-                        THRESHOLDS[axis][metric]['over_positive'] = float(data['over_positive'])
-                    elif 'max' in data and data['max'] is not None:
-                        THRESHOLDS[axis][metric]['over_positive'] = float(data['max'])
+            with thresh_lock:
+                vc.apply_threshold_payload(THRESHOLDS, data)
+                payload = copy.deepcopy(THRESHOLDS)
+                _thresholds_updated_at = time.time()
 
-                    # Min Max (Upper Warning Limit)
-                    if 'min_max' in data and data['min_max'] is not None:
-                        THRESHOLDS[axis][metric]['under_positive'] = float(data['min_max'])
-                    elif 'under_positive' in data and data['under_positive'] is not None:
-                        THRESHOLDS[axis][metric]['under_positive'] = float(data['under_positive'])
+            if db.is_configured():
+                saved_ts = db.save_thresholds(payload, _thresholds_updated_at)
+                if saved_ts:
+                    _thresholds_updated_at = saved_ts
 
-                    # Max Min (Lower Warning Limit)
-                    if 'max_min' in data and data['max_min'] is not None:
-                        THRESHOLDS[axis][metric]['under_negative'] = float(data['max_min'])
-                    elif 'under_negative' in data and data['under_negative'] is not None:
-                        THRESHOLDS[axis][metric]['under_negative'] = float(data['under_negative'])
-
-                    # Min Min (Lower Critical Limit)
-                    if 'min_min' in data and data['min_min'] is not None:
-                        THRESHOLDS[axis][metric]['over_negative'] = float(data['min_min'])
-                    elif 'over_negative' in data and data['over_negative'] is not None:
-                        THRESHOLDS[axis][metric]['over_negative'] = float(data['over_negative'])
-                    elif 'min' in data and data['min'] is not None:
-                        THRESHOLDS[axis][metric]['over_negative'] = float(data['min'])
-            return jsonify({"status": "success", "thresholds": THRESHOLDS})
+            _clear_axis_cache()
+            socketio.emit('thresholds_updated', payload)
+            return jsonify({"status": "success", "thresholds": payload})
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 400
-    return jsonify(THRESHOLDS)
+
+    with thresh_lock:
+        return jsonify(copy.deepcopy(THRESHOLDS))
 
 
 @app.route("/api/log_event", methods=["POST"])
 def api_log_event():
-    data = request.get_json()
-    if not data or 'fault_type' not in data:
+    data = request.get_json(silent=True) or {}
+    if 'fault_type' not in data:
         return jsonify({"error": "fault_type is required"}), 400
-        
+
     fault_type = data['fault_type']
     success, msg = extract_and_save_event(fault_type)
-    
     if success:
         return jsonify({"status": "success", "message": msg}), 200
-    else:
-        return jsonify({"status": "error", "message": msg}), 500
+    return jsonify({"status": "error", "message": msg}), 500
 
 
 @app.route("/api/events")
 def api_list_events():
-    events_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'events')
-    if not os.path.exists(events_dir):
-        return jsonify([])
-        
-    files_list = []
-    for root, dirs, files in os.walk(events_dir):
-        for file in files:
-            if file.endswith('.csv'):
-                fault_type = os.path.basename(root)
-                rel_path = f"{fault_type}/{file}"
-                files_list.append({
-                    "fault_type": fault_type,
-                    "filename": file,
-                    "path": rel_path
-                })
-    return jsonify(files_list)
+    seen = {}
+    if db.is_configured():
+        for item in db.list_events(limit=200):
+            seen[item['filename']] = item
+
+    if os.path.exists(EVENTS_DIR):
+        for root, _, files in os.walk(EVENTS_DIR):
+            for fname in files:
+                if fname.endswith('.csv') and fname not in seen:
+                    fault_type = os.path.basename(root)
+                    seen[fname] = {
+                        "fault_type": fault_type,
+                        "filename": fname,
+                        "path": f"{fault_type}/{fname}",
+                    }
+
+    events_list = sorted(seen.values(), key=lambda x: x.get('filename', ''), reverse=True)
+    return jsonify(events_list)
 
 
 @app.route("/api/events/download/<path:filepath>")
 def api_download_event(filepath):
-    from flask import send_from_directory
-    events_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'events')
-    directory = os.path.join(events_dir, os.path.dirname(filepath))
-    filename = os.path.basename(filepath)
-    return send_from_directory(directory, filename, as_attachment=True)
+    safe_name = os.path.basename(filepath)
+    if db.is_configured():
+        csv_content = db.get_event_csv(safe_name)
+        if csv_content is not None:
+            return Response(
+                csv_content,
+                mimetype='text/csv',
+                headers={'Content-Disposition': f'attachment; filename="{safe_name}"'},
+            )
+
+    safe_sub = vc.sanitize_fault_name(os.path.dirname(filepath))
+    directory = os.path.join(EVENTS_DIR, safe_sub)
+    if os.path.exists(os.path.join(directory, safe_name)):
+        return send_from_directory(directory, safe_name, as_attachment=True)
+    return jsonify({"error": "Event file not found"}), 404
 
 
 # ================= SOCKETIO =================
 @socketio.on('connect')
 def handle_connect():
-    print('[SOCKET] Client connected')
+    global _connected_clients
+    with _clients_lock:
+        _connected_clients += 1
     emit('connection_response', {'status': 'connected'})
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print('[SOCKET] Client disconnected')
+    global _connected_clients
+    with _clients_lock:
+        _connected_clients = max(0, _connected_clients - 1)
 
 
 @socketio.on('request_axis_data')
 def handle_axis_request(data):
-    axis       = data.get('axis', 'Z')
-    metric     = data.get('metric', 'acceleration')
-    minutes    = data.get('minutes', 10)
+    axis = data.get('axis', 'Z')
+    metric = data.get('metric', 'acceleration')
+    minutes = data.get('minutes', 10)
     start_time = data.get('start_time')
-    end_time   = data.get('end_time')
+    end_time = data.get('end_time')
 
     if start_time and end_time:
         graph_data = get_axis_data(axis, metric=metric, start_time=start_time, end_time=end_time)

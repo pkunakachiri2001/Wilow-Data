@@ -1,35 +1,34 @@
 """
 db.py — Shared Aiven PostgreSQL module
-Used by server.py (RPi / local receiver).
-All data is stored in the `vibration_data` table.
-Set DATABASE_URL in environment or .env before importing.
-
-Schema (33 data columns, same order as CSV_HEADERS in server.py):
-    date, time_sec,
-    max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,     (Z accel)
-    max_ax, min_ax, mean_ax,                                       (X accel)
-    max_ay, min_ay, mean_ay,                                       (Y accel)
-    disp_peak/p2p/rms _z/_x/_y _mm,                                (displacement)
-    fft1_freq, fft1_mag ... fft5_freq, fft5_mag                    (Z FFT peaks)
-
-Tables created with the older 21-column layout are upgraded automatically by
-init_db() (ALTER TABLE ... ADD COLUMN IF NOT EXISTS) — no data is lost.
+Used by both cloud_server.py (Render) and server.py (local hub / RPi).
+Tables managed automatically by init_db():
+  1. vibration_data   (33 data columns + id, created_at)
+  2. app_thresholds   (single-row JSON config + updated_at epoch for cloud<->local sync)
+  3. vibration_events (saved threshold/manual fault event CSV snapshots, bounded to max 200)
 """
 
+import json
 import os
-import queue
+import time
 import psycopg2
 import psycopg2.pool
 import psycopg2.extensions
-from datetime import datetime
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
-_pool = None
+
+def _get_database_url() -> str:
+    """Resolve DATABASE_URL dynamically so .env loaded after import works reliably."""
+    return os.environ.get('DATABASE_URL', '').strip() or DATABASE_URL.strip()
+
+
+def is_configured() -> bool:
+    """Return True if a PostgreSQL DATABASE_URL is currently configured."""
+    return bool(_get_database_url())
+
 
 # ================= SCHEMA =================
-# Order MUST match CSV_HEADERS in server.py (fetch_rows_since() rows are written
-# straight into the local CSV files).
+# Order MUST match vibration_core.CSV_HEADERS (33 columns).
 TEXT_COLUMNS = ['date']
 KEY_COLUMN = 'time_sec'
 FLOAT_COLUMNS = [
@@ -43,11 +42,11 @@ FLOAT_COLUMNS = [
     'fft3_freq', 'fft3_mag', 'fft4_freq', 'fft4_mag',
     'fft5_freq', 'fft5_mag',
 ]
-DB_COLUMNS = TEXT_COLUMNS + [KEY_COLUMN] + FLOAT_COLUMNS   # 33 columns
+DB_COLUMNS = TEXT_COLUMNS + [KEY_COLUMN] + FLOAT_COLUMNS  # 33 columns
 
-_COL_LIST    = ', '.join(DB_COLUMNS)
-_PARAM_LIST  = ', '.join(f'%({c})s' for c in DB_COLUMNS)
-_INSERT_SQL  = f"""
+_COL_LIST = ', '.join(DB_COLUMNS)
+_PARAM_LIST = ', '.join(f'%({c})s' for c in DB_COLUMNS)
+_INSERT_SQL = f"""
     INSERT INTO vibration_data ({_COL_LIST})
     VALUES ({_PARAM_LIST})
     ON CONFLICT (time_sec) DO NOTHING
@@ -56,12 +55,12 @@ _INSERT_SQL  = f"""
 
 def _make_dsn() -> str:
     """
-    Return DATABASE_URL for Aiven DB with keepalives to ensure orphaned
-    sessions from previous deploys or killed containers are freed quickly.
+    Return DATABASE_URL with TCP keepalives so orphaned sessions from
+    restarts/deploys are freed rapidly on Aiven.
     """
-    if not DATABASE_URL:
+    dsn = _get_database_url()
+    if not dsn:
         return ''
-    dsn = DATABASE_URL
     sep = '&' if '?' in dsn else '?'
     params = [
         'sslmode=require',
@@ -79,29 +78,33 @@ def _make_dsn() -> str:
 
 
 POOL_MAX_CONN = 4
+IDLE_PING_SECONDS = 30.0
 _pool = None
 
 
 class DBConnectionPool:
     """
     Thread-safe & greenlet-safe self-healing connection pool.
-    Uses a LifoQueue for connection reuse with a strict cap of max_conn (4).
-    Stale or dropped connections are transparently detected and replaced.
-    Guaranteed zero semaphore permit leaks and zero lockups.
+    Uses a LifoQueue storing (conn, last_used_ts) with strict cap of max_conn (4).
+    Dead/stale connections decrement _created atomically and are replaced cleanly
+    so transient network drops never leak pool slots.
     """
+
     def __init__(self, dsn_func, max_conn=POOL_MAX_CONN, timeout=12):
         self.dsn_func = dsn_func
         self.max_conn = max_conn
         self.timeout = timeout
         try:
-            from gevent.queue import LifoQueue
+            from gevent.queue import LifoQueue, Empty
             from gevent.lock import Semaphore
             self._queue = LifoQueue()
+            self._empty_exc = Empty
             self._lock = Semaphore()
         except ImportError:
             import queue
             import threading
             self._queue = queue.LifoQueue()
+            self._empty_exc = queue.Empty
             self._lock = threading.Lock()
         self._created = 0
 
@@ -112,62 +115,79 @@ class DBConnectionPool:
             options='-c idle_in_transaction_session_timeout=15000 -c statement_timeout=20000',
         )
 
-    def getconn(self, timeout=None):
-        to = timeout if timeout is not None else self.timeout
-        # 1. Try to get an idle connection from the pool without blocking
+    def _safe_close(self, conn):
         try:
-            conn = self._queue.get_nowait()
-            if not getattr(conn, 'closed', False):
-                try:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT 1")
-                    return conn
-                except Exception:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-            with self._lock:
-                self._created = max(0, self._created - 1)
+            conn.close()
         except Exception:
             pass
 
-        # 2. If we haven't reached max_conn yet, create a fresh connection
+    def _is_usable(self, conn, last_ts: float) -> bool:
+        if conn is None or getattr(conn, 'closed', 1):
+            return False
+        if (time.time() - last_ts) <= IDLE_PING_SECONDS:
+            return True
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            conn.rollback()
+            return True
+        except Exception:
+            return False
+
+    def getconn(self, timeout=None):
+        to = timeout if timeout is not None else self.timeout
+
+        # 1. Drain any idle connections from the pool, discarding dead ones cleanly
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except self._empty_exc:
+                break
+            conn, last_ts = item
+            if self._is_usable(conn, last_ts):
+                return conn
+            self._safe_close(conn)
+            with self._lock:
+                self._created = max(0, self._created - 1)
+
+        # 2. If under pool cap, reserve a slot and open a fresh connection
+        reserved = False
         with self._lock:
             if self._created < self.max_conn:
                 self._created += 1
-                try:
-                    return self._connect_fresh()
-                except Exception:
+                reserved = True
+        if reserved:
+            try:
+                return self._connect_fresh()
+            except Exception:
+                with self._lock:
                     self._created = max(0, self._created - 1)
-                    raise
+                raise
 
         # 3. Pool is at capacity; wait cooperatively for an in-flight connection
         try:
-            conn = self._queue.get(timeout=to)
-            if not getattr(conn, 'closed', False):
-                try:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT 1")
-                    return conn
-                except Exception:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-            # Stale connection returned; replace it
+            item = self._queue.get(timeout=to)
+        except self._empty_exc:
+            raise psycopg2.pool.PoolError(f"Database connection pool exhausted (waited {to}s)")
+
+        conn, last_ts = item
+        if self._is_usable(conn, last_ts):
+            return conn
+
+        # Returned connection is dead; close & replace within the same reserved slot
+        self._safe_close(conn)
+        try:
             return self._connect_fresh()
         except Exception:
-            raise psycopg2.pool.PoolError(f"Database connection pool exhausted (waited {to}s)")
+            with self._lock:
+                self._created = max(0, self._created - 1)
+            raise
 
     def putconn(self, conn, close=False):
         if conn is None:
             return
-        if close or getattr(conn, 'closed', False):
-            try:
-                conn.close()
-            except Exception:
-                pass
+        if close or getattr(conn, 'closed', 1):
+            self._safe_close(conn)
             with self._lock:
                 self._created = max(0, self._created - 1)
             return
@@ -175,24 +195,18 @@ class DBConnectionPool:
         try:
             if conn.status == psycopg2.extensions.STATUS_IN_TRANSACTION:
                 conn.rollback()
-            self._queue.put_nowait(conn)
+            self._queue.put_nowait((conn, time.time()))
         except Exception:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            self._safe_close(conn)
             with self._lock:
                 self._created = max(0, self._created - 1)
 
     def closeall(self):
         while True:
             try:
-                conn = self._queue.get_nowait()
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            except Exception:
+                conn, _ = self._queue.get_nowait()
+                self._safe_close(conn)
+            except self._empty_exc:
                 break
         with self._lock:
             self._created = 0
@@ -201,7 +215,7 @@ class DBConnectionPool:
 def _get_pool():
     global _pool
     if _pool is None:
-        if not DATABASE_URL:
+        if not is_configured():
             raise RuntimeError("[DB] DATABASE_URL env var is not set.")
         _pool = DBConnectionPool(_make_dsn, max_conn=POOL_MAX_CONN, timeout=12)
     return _pool
@@ -217,14 +231,34 @@ def _put_conn(conn, close=False):
         _pool.putconn(conn, close=close)
 
 
+def health_check() -> bool:
+    """Return True if Aiven PostgreSQL is reachable and responds to SELECT 1."""
+    if not is_configured():
+        return False
+    conn = None
+    conn_broken = False
+    try:
+        conn = _get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        conn.rollback()
+        return True
+    except Exception:
+        conn_broken = True
+        return False
+    finally:
+        _put_conn(conn, close=conn_broken)
+
+
 # ================= INIT =================
 def init_db():
     """
-    Create the vibration_data table if it does not exist, and add any columns
-    that are missing from an older (21-column) table.
+    Create vibration_data, app_thresholds, and vibration_events tables if absent,
+    and migrate older 21-column vibration_data schemas automatically.
     """
     float_defs = ',\n                    '.join(f'{c} DOUBLE PRECISION' for c in FLOAT_COLUMNS)
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute(f"""
@@ -238,19 +272,40 @@ def init_db():
                 CREATE INDEX IF NOT EXISTS idx_time_sec ON vibration_data(time_sec);
                 CREATE INDEX IF NOT EXISTS idx_date     ON vibration_data(date);
             """)
-            # Migration: upgrade tables created with the old 21-column layout
             for col in FLOAT_COLUMNS:
                 cur.execute(
                     f"ALTER TABLE vibration_data ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION"
                 )
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS app_thresholds (
+                    id         INTEGER PRIMARY KEY CHECK (id = 1),
+                    config     TEXT NOT NULL,
+                    updated_at DOUBLE PRECISION NOT NULL
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS vibration_events (
+                    id          SERIAL PRIMARY KEY,
+                    fault_type  TEXT NOT NULL,
+                    filename    TEXT UNIQUE NOT NULL,
+                    created_at  DOUBLE PRECISION NOT NULL,
+                    source      TEXT DEFAULT 'cloud',
+                    csv_content TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_events_created ON vibration_events(created_at DESC);
+            """)
             conn.commit()
-        print(f"[DB] vibration_data table ready ({len(DB_COLUMNS)} data columns).")
+        print(f"[DB] Tables ready ({len(DB_COLUMNS)} data columns + thresholds + events).")
     except Exception as e:
-        conn.rollback()
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] init_db: {e}")
         raise
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
 # ================= WRITE =================
@@ -260,31 +315,31 @@ def _complete_row(row_dict: dict) -> dict:
 
 
 def insert_row(row_dict: dict):
-    """
-    Insert one parsed row into Aiven.
-    Silently skips duplicate time_sec values (ON CONFLICT DO NOTHING).
-
-    Expected keys: see DB_COLUMNS (date, time_sec, max_az ... fft5_mag).
-    Missing keys are stored as NULL.
-    """
+    """Insert one parsed row into Aiven (skips duplicate time_sec cleanly)."""
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute(_INSERT_SQL, _complete_row(row_dict))
             conn.commit()
     except Exception as e:
-        conn.rollback()
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] insert_row: {e}")
         raise
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
 def insert_many_rows(rows: list):
-    """Bulk insert a list of row_dicts. Useful for sync / migration."""
+    """Bulk insert a list of row_dicts."""
     if not rows:
         return
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             for row_dict in rows:
@@ -292,35 +347,43 @@ def insert_many_rows(rows: list):
         conn.commit()
         print(f"[DB] Bulk inserted {len(rows)} rows.")
     except Exception as e:
-        conn.rollback()
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] insert_many_rows: {e}")
         raise
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
 # ================= READ =================
 def get_latest_timestamp() -> float:
-    """Returns the max time_sec stored in Aiven, or 0.0 if empty."""
+    """Return the max time_sec stored in Aiven, or 0.0 if empty."""
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT MAX(time_sec) FROM vibration_data")
             result = cur.fetchone()
             return float(result[0]) if result and result[0] is not None else 0.0
     except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] get_latest_timestamp: {e}")
         return 0.0
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
 def get_latest_row_dict() -> dict:
-    """
-    Fetch the single newest row by time_sec from vibration_data as a dictionary.
-    Used by cloud server to hydrate latest_kpi on startup or after restarts.
-    """
+    """Fetch the newest row by time_sec from vibration_data as a dictionary."""
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute(f"""
@@ -334,19 +397,21 @@ def get_latest_row_dict() -> dict:
                 return {}
             return dict(zip(DB_COLUMNS, row))
     except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] get_latest_row_dict: {e}")
         return {}
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
 def fetch_rows_since(epoch_time: float) -> list:
-    """
-    Fetch all rows with time_sec > epoch_time.
-    Used by local server on startup to sync missed data from Aiven.
-    Returns list of tuples in CSV column order (see DB_COLUMNS).
-    """
+    """Fetch all rows with time_sec > epoch_time ordered ASC."""
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute(f"""
@@ -357,20 +422,21 @@ def fetch_rows_since(epoch_time: float) -> list:
             """, (epoch_time,))
             return cur.fetchall()
     except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] fetch_rows_since: {e}")
         return []
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
 def fetch_rows_for_chart(axis='Z', start_time=None, end_time=None, last_n_minutes=None) -> list:
-    """
-    Fetch rows for chart rendering.
-    Returns list of tuples in DB_COLUMNS order:
-      (date, time_sec, max_az, min_az, mean_az, std_az, skewness_az, kurtosis_az,
-       max_ax, min_ax, mean_ax, max_ay, min_ay, mean_ay, disp_*..., fft1_freq, ...)
-    """
+    """Fetch 33-column tuples for chart rendering."""
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             if start_time and end_time:
@@ -398,15 +464,21 @@ def fetch_rows_for_chart(axis='Z', start_time=None, end_time=None, last_n_minute
                 """)
             return cur.fetchall()
     except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] fetch_rows_for_chart: {e}")
         return []
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
 def get_available_dates() -> list:
     """Return sorted list of distinct date strings (newest first)."""
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -416,21 +488,22 @@ def get_available_dates() -> list:
             """)
             return [row[0] for row in cur.fetchall()]
     except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] get_available_dates: {e}")
         return []
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
-# ================= DELETE (transit buffer management) =================
+# ================= DELETE (retention / overflow management) =================
 def delete_rows_before_epoch(epoch_time: float) -> int:
-    """
-    Delete all rows with time_sec <= epoch_time.
-    Called by local server after a successful sync to acknowledge and
-    purge rows from Aiven (keeping it as a lean transit buffer).
-    Returns number of rows deleted.
-    """
+    """Delete rows with time_sec <= epoch_time once local hub archives them."""
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -439,38 +512,46 @@ def delete_rows_before_epoch(epoch_time: float) -> int:
             )
             deleted = cur.rowcount
             conn.commit()
-        print(f"[DB] Acknowledged delete: {deleted} rows removed from Aiven (epoch <= {epoch_time:.0f}).")
+        if deleted:
+            print(f"[DB] Retention purge: {deleted} rows removed from Aiven (epoch <= {epoch_time:.0f}).")
         return deleted
     except Exception as e:
-        conn.rollback()
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] delete_rows_before_epoch: {e}")
         return 0
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
 def get_row_count() -> int:
-    """Fast COUNT(*) — used by overflow guard."""
+    """Fast COUNT(*) for overflow guard."""
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM vibration_data")
             result = cur.fetchone()
             return int(result[0]) if result else 0
     except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] get_row_count: {e}")
         return 0
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
 
 
 def delete_oldest_rows(n: int) -> int:
-    """
-    Delete the n oldest rows by time_sec.
-    Used by an overflow guard when row count exceeds a maximum.
-    Returns number of rows deleted.
-    """
+    """Delete n oldest rows by time_sec when buffer exceeds MAX_AIVEN_ROWS."""
     conn = _get_conn()
+    conn_broken = False
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -486,16 +567,203 @@ def delete_oldest_rows(n: int) -> int:
         print(f"[DB] Overflow trim: deleted {deleted} oldest rows.")
         return deleted
     except Exception as e:
-        conn.rollback()
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"[DB ERROR] delete_oldest_rows: {e}")
         return 0
     finally:
-        _put_conn(conn)
+        _put_conn(conn, close=conn_broken)
+
+
+# ================= SHARED THRESHOLDS (WEB <-> LOCAL SYNC) =================
+def save_thresholds(thresholds_dict: dict, updated_at: float | None = None) -> float:
+    """Upsert global thresholds JSON into Aiven app_thresholds (id=1). Returns updated_at."""
+    ts = float(updated_at) if updated_at is not None else time.time()
+    payload = json.dumps(thresholds_dict)
+    conn = _get_conn()
+    conn_broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO app_thresholds (id, config, updated_at)
+                VALUES (1, %s, %s)
+                ON CONFLICT (id) DO UPDATE
+                SET config = EXCLUDED.config,
+                    updated_at = EXCLUDED.updated_at
+            """, (payload, ts))
+            conn.commit()
+        return ts
+    except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f"[DB ERROR] save_thresholds: {e}")
+        return 0.0
+    finally:
+        _put_conn(conn, close=conn_broken)
+
+
+def load_thresholds():
+    """Return (thresholds_dict, updated_at) from Aiven, or (None, 0.0) if not set."""
+    conn = _get_conn()
+    conn_broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT config, updated_at FROM app_thresholds WHERE id = 1")
+            row = cur.fetchone()
+            if not row:
+                return None, 0.0
+            return json.loads(row[0]), float(row[1])
+    except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f"[DB ERROR] load_thresholds: {e}")
+        return None, 0.0
+    finally:
+        _put_conn(conn, close=conn_broken)
+
+
+# ================= SHARED EVENTS (CLOUD <-> LOCAL SYNC) =================
+def save_event(fault_type: str, filename: str, csv_content: str, source: str = 'cloud', max_events: int = 200) -> bool:
+    """Store an event CSV snapshot in Aiven and cap stored rows to max_events."""
+    created_at = time.time()
+    conn = _get_conn()
+    conn_broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO vibration_events (fault_type, filename, created_at, source, csv_content)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (filename) DO NOTHING
+            """, (fault_type, filename, created_at, source, csv_content))
+            if max_events > 0:
+                cur.execute("""
+                    DELETE FROM vibration_events
+                    WHERE id NOT IN (
+                        SELECT id FROM vibration_events
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT %s
+                    )
+                """, (int(max_events),))
+            conn.commit()
+        return True
+    except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f"[DB ERROR] save_event: {e}")
+        return False
+    finally:
+        _put_conn(conn, close=conn_broken)
+
+
+def list_events(limit: int = 200) -> list:
+    """Return event metadata dicts (without csv_content) ordered newest-first."""
+    conn = _get_conn()
+    conn_broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT fault_type, filename, created_at, source
+                FROM vibration_events
+                ORDER BY created_at DESC, id DESC
+                LIMIT %s
+            """, (int(limit),))
+            rows = cur.fetchall()
+        return [
+            {
+                'fault_type': r[0],
+                'filename': r[1],
+                'created_at': float(r[2]) if r[2] is not None else 0.0,
+                'source': r[3] or 'cloud',
+                'path': f"{r[0]}/{r[1]}",
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f"[DB ERROR] list_events: {e}")
+        return []
+    finally:
+        _put_conn(conn, close=conn_broken)
+
+
+def get_event_csv(filename: str) -> str | None:
+    """Fetch stored CSV content for an event filename from Aiven."""
+    conn = _get_conn()
+    conn_broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT csv_content FROM vibration_events WHERE filename = %s LIMIT 1",
+                (os.path.basename(filename),)
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f"[DB ERROR] get_event_csv: {e}")
+        return None
+    finally:
+        _put_conn(conn, close=conn_broken)
+
+
+def fetch_events_since(epoch_time: float) -> list:
+    """Fetch events created after epoch_time (including csv_content) ordered ASC."""
+    conn = _get_conn()
+    conn_broken = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT fault_type, filename, created_at, source, csv_content
+                FROM vibration_events
+                WHERE created_at > %s
+                ORDER BY created_at ASC, id ASC
+            """, (float(epoch_time),))
+            rows = cur.fetchall()
+        return [
+            {
+                'fault_type': r[0],
+                'filename': r[1],
+                'created_at': float(r[2]) if r[2] is not None else 0.0,
+                'source': r[3] or 'cloud',
+                'csv_content': r[4],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        conn_broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f"[DB ERROR] fetch_events_since: {e}")
+        return []
+    finally:
+        _put_conn(conn, close=conn_broken)
 
 
 # ================= HELPERS =================
 def parsed_to_row_dict(parsed: dict, date_str: str, epoch_time: float) -> dict:
-    """Convert parse_teensy_file() output → row_dict for insert_row()."""
+    """Convert parse_teensy_file() output -> row_dict for insert_row()."""
     peaks = parsed.get('fft_peaks', [])
 
     def fv(i, j):
@@ -503,14 +771,12 @@ def parsed_to_row_dict(parsed: dict, date_str: str, epoch_time: float) -> dict:
 
     row = {'date': date_str, 'time_sec': epoch_time}
 
-    # Scalar stats (max/min/mean Az/Ax/Ay, std/skew/kurt, displacement metrics)
     for col in FLOAT_COLUMNS:
         if not col.startswith('fft'):
             row[col] = parsed.get(col)
 
-    # FFT peaks (up to 5)
     for n in range(5):
         row[f'fft{n+1}_freq'] = fv(n, 0)
-        row[f'fft{n+1}_mag']  = fv(n, 1)
+        row[f'fft{n+1}_mag'] = fv(n, 1)
 
     return row

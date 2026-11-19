@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vibration Monitor - FINAL</title>
+    <title>Cyrus Vibrations — Monitoring Dashboard</title>
     <script src="/static/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -786,97 +786,68 @@
             color: #0f172a;
         }
 
-        /* ========== WAVEFORM SECTION ========== */
-        .waveform-row {
-            grid-column: 1 / -1;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
-
-        .waveform-box {
-            background: rgba(30, 41, 59, 0.6);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 15px 20px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        
-        .waveform-box:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 40px rgba(0,0,0,0.4);
-        }
-
-        .waveform-header {
-            display: flex;
-            justify-content: space-between;
+        /* ========== ENLARGED CHART OVERLAY & MODE PILL ========== */
+        .mode-sync-pill {
+            display: inline-flex;
             align-items: center;
-            margin-bottom: 8px;  /* Reduced from 15px */
-        }
-
-        .waveform-title {
-            font-size: 12px;  /* Reduced from 14px */
-            font-weight: 700;
-            color: #94a3b8;
-        }
-
-        .waveform-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .slider-container {
-            display: flex;
-            align-items: center;
-            gap: 6px;  /* Reduced from 10px */
-        }
-
-        .slider-label {
-            font-size: 10px;  /* Reduced from 11px */
-            color: #64748b;
-        }
-
-        input[type="range"] {
-            width: 100px;  /* Reduced from 120px */
-            height: 4px;  /* Reduced from 6px */
-            background: #334155;
-            border-radius: 3px;
-            outline: none;
-            -webkit-appearance: none;
-        }
-
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 12px;  /* Reduced from 16px */
-            height: 12px;
-            background: #3b82f6;
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
-        }
-
-        input[type="range"]::-moz-range-thumb {
-            width: 12px;
-            height: 12px;
-            background: #3b82f6;
-            border-radius: 50%;
-            cursor: pointer;
-            border: none;
-        }
-
-        .slider-value {
-            font-size: 11px;  /* Reduced from 12px */
+            gap: 6px;
+            padding: 5px 11px;
+            border-radius: 999px;
+            font-size: 11px;
             font-weight: 600;
-            color: #3b82f6;
-            min-width: 30px;  /* Reduced from 35px */
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            color: #e2e8f0;
+            white-space: nowrap;
         }
-
-        .waveform-chart {
-            height: 120px;  /* Reduced from 200px to make very compact */
-            position: relative;
+        .sync-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        .sync-dot.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
+        .sync-dot.offline { background: #94a3b8; }
+        [data-theme="light"] .mode-sync-pill {
+            background: rgba(0, 0, 0, 0.06);
+            border-color: rgba(0, 0, 0, 0.12);
+            color: #1e293b;
+        }
+        .enlarged-chart {
+            position: fixed !important;
+            top: 5% !important;
+            left: 5% !important;
+            width: 90vw !important;
+            height: 90vh !important;
+            z-index: 9999 !important;
+            background: #1e293b !important;
+            padding: 20px !important;
+            border-radius: 12px !important;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8) !important;
+            display: flex !important;
+            flex-direction: column !important;
+        }
+        [data-theme="light"] .enlarged-chart {
+            background: #ffffff !important;
+        }
+        .graph-column {
+            overflow: hidden;
+        }
+        .enlarged-chart .chart-wrapper {
+            flex: 1 1 auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+        }
+        .chart-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 9998;
+            display: none;
+        }
+        .chart-overlay.active {
+            display: block;
         }
 
         /* ========== LOADING ========== */
@@ -970,14 +941,6 @@
             .graph-column {
                 padding: 15px;
             }
-
-            .waveform-row {
-                grid-template-columns: 1fr;
-            }
-
-            .waveform-box {
-                padding: 10px;
-            }
         }
     
         .status-middle {
@@ -988,15 +951,18 @@
         }
 
         .data-status-message {
-            padding: 8px 24px;
+            padding: 7px 18px;
             border-radius: 20px;
             font-weight: 700;
-            font-size: 16px;
+            font-size: 13px;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            display: none;
+            letter-spacing: 0.7px;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            opacity: 1;
+            white-space: nowrap;
         }
 
         .data-status-message.error {
@@ -1004,18 +970,29 @@
             color: #f87171;
             border: 1px solid #f87171;
             animation: blink-error 1.5s infinite;
-            display: flex;
-            opacity: 1;
         }
 
         .data-status-message.success {
             background: rgba(34, 197, 94, 0.2);
             color: #4ade80;
             border: 1px solid #4ade80;
-            display: flex;
-            opacity: 1;
-            box-shadow: 0 0 15px rgba(74, 222, 128, 0.4);
+            box-shadow: 0 0 15px rgba(74, 222, 128, 0.35);
         }
+
+        .data-status-message.warn {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border: 1px solid #f59e0b;
+        }
+
+        .data-status-message.idle {
+            background: rgba(148, 163, 184, 0.14);
+            color: #cbd5e1;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+        }
+
+        [data-theme="light"] .data-status-message.warn { background: rgba(245,158,11,0.14); color: #b45309; }
+        [data-theme="light"] .data-status-message.idle { background: rgba(100,116,139,0.12); color: #475569; }
 
         @keyframes blink-error {
             0% { opacity: 1; box-shadow: 0 0 15px rgba(248,113,113,0.6); }
@@ -1220,8 +1197,7 @@
             background: rgba(226,232,240,0.92);
             border-bottom-color: rgba(0,0,0,0.07);
         }
-        [data-theme="light"] .graph-column,
-        [data-theme="light"] .waveform-box {
+        [data-theme="light"] .graph-column {
             background: rgba(255,255,255,0.88);
             border-color: rgba(0,0,0,0.07);
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
@@ -1244,7 +1220,6 @@
         [data-theme="light"] .metric-btn:hover { background: #cbd5e1; color: #0f172a; }
         [data-theme="light"] .axis-btn { background: #cbd5e1; border-color: #94a3b8; color: #0f172a; }
         [data-theme="light"] .control-label { color: #475569; }
-        [data-theme="light"] .waveform-title { color: #475569; }
         [data-theme="light"] .threshold-legend { border-top-color: #cbd5e1; }
         [data-theme="light"] .custom-input { background: #e2e8f0; color: #0f172a; border-color: #94a3b8; color-scheme: light; }
         [data-theme="light"] .library-btn { background: rgba(0,0,0,0.07); color: #475569; border-color: rgba(0,0,0,0.15); }
@@ -1596,8 +1571,8 @@
             </div>
             
             <div class="status-middle">
-                <div class="data-status-message" id="dataStatusMessage">
-                    ?? No Data Available
+                <div class="data-status-message idle" id="dataStatusMessage">
+                    ⚪ Waiting for Sensor Data...
                 </div>
             </div>
 <div class="status-right">
@@ -1639,7 +1614,12 @@
             </div>
         </div>
         
-        <div style="width:150px;display:flex;align-items:center;justify-content:flex-end;gap:10px;">
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-shrink:0;">
+            <div class="mode-sync-pill" id="modeSyncPill" title="Server Mode & Cloud DB Sync Status">
+                <span class="sync-dot offline" id="dbSyncDot"></span>
+                <span id="modeBadgeText">{% if is_cloud %}☁️ Web Cloud{% else %}🖥️ Local Hub{% endif %}</span>
+                <span id="dbSyncText" style="opacity:0.75;">&bull; Checking...</span>
+            </div>
             <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Toggle dark / light mode">🌙</button>
         </div>
     </div>
@@ -1743,13 +1723,13 @@
         <!-- EVENT LOGGING & LIBRARY -->
         <div class="control-group event-actions" style="margin-left: auto;">
             <button class="library-btn" onclick="openEventsModal()">
-                <i class="fas fa-folder-open"></i> Event Library
+                📂 Event Library
             </button>
             
             <div class="event-dropdown">
                 <span class="anomaly-badge" id="anomalyBadge">0</span>
                 <button class="event-btn">
-                    <i class="fas fa-exclamation-triangle"></i> Log Event
+                    ⚠️ Log Event
                 </button>
                 <div class="dropdown-content">
                     <a href="#" onclick="logEvent('Bearing Failure'); return false;">Bearing Failure</a>
@@ -2005,7 +1985,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2 style="margin: 0; font-size: 1.5rem; display: flex; align-items: center; gap: 10px;">
-                    <i class="fas fa-folder-open" style="color: #60a5fa;"></i> Event Library
+                    📂 Event Library
                 </h2>
                 <span class="close-modal" onclick="closeEventsModal()">&times;</span>
             </div>
@@ -2039,6 +2019,10 @@
         const kpiAxis = { displacement: 'Z', velocity: 'Z', acceleration: 'Z' };
         let thresholds = null;
         let currentDate = null;  // Selected date (null = live mode)
+        let isSocketConnected = false;
+        let lastKpiData = null;
+        let lastDataAgeSecs = null;
+        const KPI_STALE_SECS = 30; // readings older than 30 s are stale
 
         // Chart instances
         let primaryChart, secondaryChart;
@@ -2050,6 +2034,77 @@
         let trendBufferPrimary = [];    // Rolling last 20 avg values — Z-axis
         let trendBufferSecondary = [];  // Rolling last 20 avg values — secondary axis
         const TREND_BUFFER_SIZE = 20;
+
+        function parseServerTimestamp(ts) {
+            if (!ts) return null;
+            let s = String(ts).trim();
+            if (!s) return null;
+            if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T');
+            if (!s.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+            const d = new Date(s);
+            return isNaN(d.getTime()) ? null : d;
+        }
+
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function updateDataStatusBanner(ageSecs, connected) {
+            const el = document.getElementById('dataStatusMessage');
+            if (!el) return;
+            el.className = 'data-status-message';
+            if (!connected) {
+                el.classList.add('error');
+                el.textContent = '🔴 Server Disconnected — Reconnecting...';
+            } else if (ageSecs === null || ageSecs === undefined) {
+                el.classList.add('idle');
+                el.textContent = '⚪ Waiting for Sensor Data...';
+            } else if (ageSecs < KPI_STALE_SECS) {
+                el.classList.add('success');
+                el.textContent = '🟢 Live Data Active';
+            } else {
+                el.classList.add('warn');
+                const mins = Math.floor(ageSecs / 60);
+                el.textContent = mins > 0 ? `🟡 Data Stale (${mins}m ago)` : `🟡 Data Stale (${Math.round(ageSecs)}s ago)`;
+            }
+        }
+
+        function _applyServerThresholdsObj(serverThresholds) {
+            if (!serverThresholds || !serverThresholds.z_axis) return;
+            thresholds = serverThresholds;
+            if (serverThresholds.z_axis.acceleration) {
+                const za = serverThresholds.z_axis.acceleration;
+                defaultThresholds.primary.max_max = za.over_positive;
+                defaultThresholds.primary.min_max = za.under_positive;
+                defaultThresholds.primary.max_min = za.under_negative;
+                defaultThresholds.primary.min_min = za.over_negative;
+                userThresholds.primary.max_max = za.over_positive;
+                userThresholds.primary.min_max = za.under_positive;
+                userThresholds.primary.max_min = za.under_negative;
+                userThresholds.primary.min_min = za.over_negative;
+                saveThresholdsToStorage('primary');
+            }
+            if (serverThresholds.z_axis.displacement) {
+                const zd = serverThresholds.z_axis.displacement;
+                defaultThresholds.secondary.max_max = zd.over_positive;
+                defaultThresholds.secondary.min_max = zd.under_positive;
+                defaultThresholds.secondary.max_min = zd.under_negative;
+                defaultThresholds.secondary.min_min = zd.over_negative;
+                userThresholds.secondary.max_max = zd.over_positive;
+                userThresholds.secondary.min_max = zd.under_positive;
+                userThresholds.secondary.max_min = zd.under_negative;
+                userThresholds.secondary.min_min = zd.over_negative;
+                saveThresholdsToStorage('secondary');
+            }
+            syncThresholdInputsUI();
+            applyThresholdLinesToChart('primary');
+            applyThresholdLinesToChart('secondary');
+        }
 
         // ========== THRESHOLD HELPERS & MANAGEMENT ==========
         const defaultThresholds = {
@@ -2223,43 +2278,12 @@
         async function loadThresholds() {
             try {
                 const response = await fetch('/api/thresholds');
-                thresholds = await response.json();
-                console.log('Thresholds loaded:', thresholds);
-                if (thresholds && thresholds.z_axis) {
-                    if (thresholds.z_axis.acceleration) {
-                        const za = thresholds.z_axis.acceleration;
-                        defaultThresholds.primary.max_max = za.over_positive;
-                        defaultThresholds.primary.min_max = za.under_positive;
-                        defaultThresholds.primary.max_min = za.under_negative;
-                        defaultThresholds.primary.min_min = za.over_negative;
-
-                        ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
-                            if (localStorage.getItem(`cirus_thresh_primary_${key}`) === null) {
-                                const mapKey = key === 'max_max' ? 'over_positive' : key === 'min_max' ? 'under_positive' : key === 'max_min' ? 'under_negative' : 'over_negative';
-                                userThresholds.primary[key] = za[mapKey];
-                            }
-                        });
-                    }
-                    if (thresholds.z_axis.displacement) {
-                        const zd = thresholds.z_axis.displacement;
-                        defaultThresholds.secondary.max_max = zd.over_positive;
-                        defaultThresholds.secondary.min_max = zd.under_positive;
-                        defaultThresholds.secondary.max_min = zd.under_negative;
-                        defaultThresholds.secondary.min_min = zd.over_negative;
-
-                        ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
-                            if (localStorage.getItem(`cirus_thresh_secondary_${key}`) === null) {
-                                const mapKey = key === 'max_max' ? 'over_positive' : key === 'min_max' ? 'under_positive' : key === 'max_min' ? 'under_negative' : 'over_negative';
-                                userThresholds.secondary[key] = zd[mapKey];
-                            }
-                        });
-                    }
-                }
-                syncThresholdInputsUI();
-                applyThresholdLinesToChart('primary');
-                applyThresholdLinesToChart('secondary');
+                if (!response.ok) return;
+                const data = await response.json();
+                console.log('Thresholds loaded from server:', data);
+                _applyServerThresholdsObj(data);
             } catch (error) {
-                console.error('Failed to load thresholds:', error);
+                console.warn('Failed to fetch server thresholds (using stored UI values):', error);
             }
         }
 
@@ -2338,15 +2362,20 @@
                 }
                 
                 // Sort by filename descending (newest first)
-                events.sort((a, b) => b.filename.localeCompare(a.filename));
+                events.sort((a, b) => (b.filename || '').localeCompare(a.filename || ''));
                 
-                tbody.innerHTML = events.map(e => `
+                tbody.innerHTML = events.map(e => {
+                    const faultSafe = escapeHtml(e.fault_type);
+                    const fileSafe = escapeHtml(e.filename);
+                    const dlPath = `${encodeURIComponent(e.fault_type || '')}/${encodeURIComponent(e.filename || '')}`;
+                    return `
                     <tr>
-                        <td style="font-weight: 600;">${e.fault_type}</td>
-                        <td style="color: #94a3b8;">${e.filename}</td>
-                        <td><a href="/api/events/download/${e.path}" class="download-link" target="_blank"><i class="fas fa-download"></i> Download CSV</a></td>
+                        <td style="font-weight: 600;">${faultSafe}</td>
+                        <td style="color: #94a3b8;">${fileSafe}</td>
+                        <td><a href="/api/events/download/${dlPath}" class="download-link" target="_blank">⬇️ Download CSV</a></td>
                     </tr>
-                `).join('');
+                `;
+                }).join('');
             } catch (err) {
                 tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #ef4444;">Error loading events.</td></tr>';
             }
@@ -2751,16 +2780,19 @@
             // Update button states within the same card
             btn.closest('.kpi-axis-selector').querySelectorAll('.kpi-axis-btn')
                .forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+            if (lastKpiData) {
+                renderKpi(lastKpiData);
+            }
         }
 
         let kpiLastTimestamp = null;
-        const KPI_STALE_SECS = 30; // readings older than 30 s are stale
 
         async function fetchKpi() {
             try {
                 const res = await fetch('/api/latest_kpi');
                 if (!res.ok) return;
                 const kpi = await res.json();
+                lastKpiData = kpi;
                 renderKpi(kpi);
                 kpiLastTimestamp = kpi.timestamp || null;
             } catch (e) { /* silent — freshness dot will go disconnected on next render */ }
@@ -2770,16 +2802,12 @@
             const now = new Date();
             // Determine freshness
             let ageSecs = null;
-            if (kpi.timestamp) {
-                let tsStr = String(kpi.timestamp).trim();
-                if (!tsStr.endsWith('Z') && !tsStr.includes('+')) {
-                    tsStr = tsStr.replace(' ', 'T') + 'Z';
-                }
-                const ts = new Date(tsStr);
-                ageSecs = Math.max(0, (now.getTime() - ts.getTime()) / 1000);
+            const parsedTs = parseServerTimestamp(kpi.timestamp);
+            if (parsedTs) {
+                ageSecs = Math.max(0, (now.getTime() - parsedTs.getTime()) / 1000);
             }
-            const fresh = ageSecs !== null && ageSecs < KPI_STALE_SECS;
-            const stale = ageSecs !== null && ageSecs >= KPI_STALE_SECS;
+            lastDataAgeSecs = ageSecs;
+            updateDataStatusBanner(ageSecs, isSocketConnected);
             const noData = ageSecs === null;
 
             function fmt(val, decimals) {
@@ -2801,7 +2829,6 @@
             function setFreshness(elId, ageSecs, noData) {
                 const el = document.getElementById(elId);
                 if (!el) return;
-                const dot  = el.querySelector('.kpi-freshness-dot');
                 const txt  = el.querySelector('span:last-child');
                 el.className = 'kpi-freshness';
                 if (noData) {
@@ -2849,12 +2876,11 @@
                 defaultThresholds.primary.max_min = zt.under_negative;
                 defaultThresholds.primary.min_min = zt.over_negative;
 
-                ['max_max', 'min_max', 'max_min', 'min_min'].forEach(key => {
-                    if (localStorage.getItem(`cirus_thresh_primary_${key}`) === null) {
-                        const mapKey = key === 'max_max' ? 'over_positive' : key === 'min_max' ? 'under_positive' : key === 'max_min' ? 'under_negative' : 'over_negative';
-                        userThresholds.primary[key] = zt[mapKey];
-                    }
-                });
+                userThresholds.primary.max_max = zt.over_positive;
+                userThresholds.primary.min_max = zt.under_positive;
+                userThresholds.primary.max_min = zt.under_negative;
+                userThresholds.primary.min_min = zt.over_negative;
+                saveThresholdsToStorage('primary');
             }
 
             syncThresholdInputsUI();
@@ -2991,35 +3017,55 @@
         async function fetchStatus() {
             try {
                 const response = await fetch('/api/latest_status');
+                if (!response.ok) return;
                 const status = await response.json();
 
                 if (status.status) {
                     document.getElementById('currentStatus').textContent = status.status;
                 }
-                if (status.magnitude) {
-                    document.getElementById('currentMagnitude').textContent = 
+                if (status.magnitude !== undefined && status.magnitude !== null) {
+                    document.getElementById('currentMagnitude').textContent =
                         parseFloat(status.magnitude).toFixed(3) + ' m/s²';
                 }
-                if (status.frequency) {
-                    document.getElementById('currentFrequency').textContent = 
+                if (status.frequency !== undefined && status.frequency !== null) {
+                    document.getElementById('currentFrequency').textContent =
                         parseFloat(status.frequency).toFixed(1) + ' Hz';
                 }
-                if (status.timestamp) {
-                    const statusDate = new Date(status.timestamp.replace(' ', 'T') + 'Z');
+                const statusDate = parseServerTimestamp(status.timestamp);
+                if (statusDate) {
                     document.getElementById('lastUpdate').textContent = statusDate.toLocaleTimeString([], { hour12: false });
+                    if (lastDataAgeSecs === null) {
+                        const ageSecs = Math.max(0, (Date.now() - statusDate.getTime()) / 1000);
+                        lastDataAgeSecs = ageSecs;
+                        updateDataStatusBanner(ageSecs, isSocketConnected);
+                    }
                 }
+
+                // Update Cloud/Local DB Sync indicator
+                const dbDot = document.getElementById('dbSyncDot');
+                const dbTxt = document.getElementById('dbSyncText');
+                if (dbDot && dbTxt) {
+                    if (status.db_connected) {
+                        dbDot.className = 'sync-dot online';
+                        dbTxt.textContent = '• Aiven Synced';
+                    } else {
+                        dbDot.className = 'sync-dot offline';
+                        dbTxt.textContent = IS_CLOUD ? '• DB Offline' : '• Local Only';
+                    }
+                }
+
                 if (status.ai_confidence !== undefined && status.ai_confidence !== null) {
                     const conf = parseFloat(status.ai_confidence);
                     updateGauge(conf);
                     healthAiBuffer.push(conf);
                     if (healthAiBuffer.length > TREND_BUFFER_SIZE) healthAiBuffer.shift();
-                    updateHealthScore();
                 } else {
                     updateGauge(null);
                 }
+                updateHealthScore();
 
                 if (status.alert) {
-                    document.getElementById('alertInfo').textContent = 
+                    document.getElementById('alertInfo').textContent =
                         `🔴 ${status.alert_type || 'Threshold Exceeded'} | Z: ${parseFloat(status.magnitude || 0).toFixed(2)} m/s²`;
                     document.getElementById('alertInfo').classList.remove('no-alert');
                     document.getElementById('statusBar').classList.add('alert-active');
@@ -3036,19 +3082,24 @@
         // ========== SOCKET EVENTS ==========
         socket.on('connect', () => {
             console.log('Connected to server');
+            isSocketConnected = true;
             document.getElementById('connectionBadge').className = 'connection-badge connected';
             document.getElementById('connectionText').textContent = 'Live';
+            updateDataStatusBanner(lastDataAgeSecs, true);
 
             loadThresholds();
-            if (!IS_CLOUD) loadAvailableDates();  // Cloud has no date picker
+            if (!IS_CLOUD) loadAvailableDates();
             requestGraphData();
             fetchStatus();
+            fetchKpi();
         });
 
         socket.on('disconnect', () => {
             console.log('Disconnected');
+            isSocketConnected = false;
             document.getElementById('connectionBadge').className = 'connection-badge disconnected';
             document.getElementById('connectionText').textContent = 'Offline';
+            updateDataStatusBanner(lastDataAgeSecs, false);
         });
 
         socket.on('axis_data', (data) => {
@@ -3061,9 +3112,25 @@
             updatePrimaryChart(data);
         });
 
+        let _lastDataUpdateTrigger = 0;
+        let _dataUpdateTimer = null;
         socket.on('data_update', () => {
-            requestGraphData();
-            fetchStatus();
+            const now = Date.now();
+            const elapsed = now - _lastDataUpdateTrigger;
+            if (elapsed >= 1500) {
+                _lastDataUpdateTrigger = now;
+                requestGraphData();
+                fetchStatus();
+                fetchKpi();
+            } else if (!_dataUpdateTimer) {
+                _dataUpdateTimer = setTimeout(() => {
+                    _dataUpdateTimer = null;
+                    _lastDataUpdateTrigger = Date.now();
+                    requestGraphData();
+                    fetchStatus();
+                    fetchKpi();
+                }, 1500 - elapsed);
+            }
         });
 
         socket.on('alert_notification', (alert) => {
@@ -3071,8 +3138,9 @@
             const statusBar = document.getElementById('statusBar');
             statusBar.classList.add('alert-active');
             
-            const alertTime = new Date(alert.timestamp.replace(' ', 'T') + 'Z').toLocaleTimeString([], { hour12: false });
-            let alertText = `🔴 ${alert.alert_type} at ${alertTime} | ${alert.axis}: ${parseFloat(alert.magnitude).toFixed(2)} m/s²`;
+            const parsedAlertDate = parseServerTimestamp(alert.timestamp);
+            const alertTime = parsedAlertDate ? parsedAlertDate.toLocaleTimeString([], { hour12: false }) : '--:--:--';
+            let alertText = `🔴 ${alert.alert_type} at ${alertTime} | ${alert.axis}: ${parseFloat(alert.magnitude || 0).toFixed(2)} m/s²`;
             if (alert.ai_confidence) {
                 alertText += ` | AI Conf: ${parseFloat(alert.ai_confidence).toFixed(1)}%`;
             }
@@ -3093,13 +3161,15 @@
         socket.on('event_logged', (eventData) => {
             console.log('📁 Event auto-logged:', eventData);
             showToast(`📁 Event Created: ${eventData.fault_type}`, 6000);
-            sessionAnomalyCount++;
-            const _badge = document.getElementById('anomalyBadge');
-            if (_badge) { _badge.textContent = sessionAnomalyCount; _badge.classList.add('visible'); }
             const modal = document.getElementById('eventsModal');
             if (modal && modal.style.display === 'block') {
                 fetchEvents();
             }
+        });
+
+        socket.on('thresholds_updated', (serverThresholds) => {
+            _applyServerThresholdsObj(serverThresholds);
+            showToast('🔄 Thresholds synced from server', 3000);
         });
 
         // ========== INITIALIZATION ==========
@@ -3107,23 +3177,81 @@
             loadStoredThresholds();
             initCharts();
             initTheme();
+            updateHealthScore();
             loadThresholds();
-            updateThresholdLines(currentMetric);
-            loadAvailableDates();
+            if (!IS_CLOUD) loadAvailableDates();
 
-            // Primary chart (acceleration) — socket-driven, polled every 5s
             requestGraphData();
-            setInterval(requestGraphData, 5000);
-
-            // Secondary chart (displacement) — REST-driven, polled every 5s
-            fetchDisplacementChart();
-            setInterval(fetchDisplacementChart, 5000);
-
-            setInterval(fetchStatus, 2000);
-
-            // KPI cards polling (every 3 s)
+            fetchStatus();
             fetchKpi();
-            setInterval(fetchKpi, 3000);
+
+            setInterval(() => { if (!document.hidden) requestGraphData(); }, 5000);
+            setInterval(() => { if (!document.hidden) fetchStatus(); }, 2000);
+            setInterval(() => { if (!document.hidden) fetchKpi(); }, 3000);
+
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    requestGraphData();
+                    fetchStatus();
+                    fetchKpi();
+                }
+            });
+
+            // Double-click any graph card to enlarge cleanly inside overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'chart-overlay';
+            document.body.appendChild(overlay);
+
+            let activeEnlarged = null;
+            let placeholder = null;
+
+            function toggleEnlarge(element) {
+                if (activeEnlarged === element) {
+                    element.classList.remove('enlarged-chart');
+                    overlay.classList.remove('active');
+                    activeEnlarged = null;
+                    if (placeholder) {
+                        placeholder.replaceWith(element);
+                        placeholder = null;
+                    }
+                } else {
+                    if (activeEnlarged) {
+                        activeEnlarged.classList.remove('enlarged-chart');
+                        if (placeholder) {
+                            placeholder.replaceWith(activeEnlarged);
+                        }
+                    }
+                    placeholder = document.createElement('div');
+                    placeholder.className = element.className;
+                    placeholder.style.width = element.offsetWidth + 'px';
+                    placeholder.style.height = element.offsetHeight + 'px';
+                    placeholder.style.visibility = 'hidden';
+
+                    element.parentNode.insertBefore(placeholder, element);
+                    document.body.appendChild(element);
+
+                    element.classList.add('enlarged-chart');
+                    overlay.classList.add('active');
+                    activeEnlarged = element;
+                }
+
+                setTimeout(() => {
+                    Object.values(Chart.instances).forEach(c => c.resize());
+                }, 50);
+            }
+
+            overlay.addEventListener('click', () => {
+                if (activeEnlarged) toggleEnlarge(activeEnlarged);
+            });
+
+            document.querySelectorAll('.graph-column').forEach(box => {
+                box.addEventListener('dblclick', function() {
+                    toggleEnlarge(this);
+                    window.getSelection().removeAllRanges();
+                });
+                box.style.cursor = 'pointer';
+                box.title = 'Double click to enlarge';
+            });
         });
 
         // ========== AI CONFIDENCE GAUGE ==========
@@ -3295,96 +3423,3 @@
     </script>
 </body>
 </html>
-<style>
-.enlarged-chart {
-    position: fixed !important;
-    top: 5% !important;
-    left: 5% !important;
-    width: 90vw !important;
-    height: 90vh !important;
-    z-index: 9999 !important;
-    background: #1e293b !important;
-    padding: 20px !important;
-    border-radius: 12px !important;
-    box-shadow: 0 0 50px rgba(0,0,0,0.8) !important;
-}
-.chart-overlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.7);
-    z-index: 9998;
-    display: none;
-}
-.chart-overlay.active {
-    display: block;
-}
-</style>
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-    const overlay = document.createElement('div');
-    overlay.className = 'chart-overlay';
-    document.body.appendChild(overlay);
-
-    let activeEnlarged = null;
-    let placeholder = null;
-
-    function toggleEnlarge(element) {
-        if (activeEnlarged === element) {
-            element.classList.remove('enlarged-chart');
-            overlay.classList.remove('active');
-            activeEnlarged = null;
-            if (placeholder) {
-                placeholder.replaceWith(element);
-                placeholder = null;
-            }
-        } else {
-            if (activeEnlarged) {
-                activeEnlarged.classList.remove('enlarged-chart');
-                if (placeholder) {
-                    placeholder.replaceWith(activeEnlarged);
-                }
-            }
-            placeholder = document.createElement('div');
-            placeholder.className = element.className;
-            placeholder.style.width = element.offsetWidth + 'px';
-            placeholder.style.height = element.offsetHeight + 'px';
-            placeholder.style.visibility = 'hidden';
-            
-            element.parentNode.insertBefore(placeholder, element);
-            document.body.appendChild(element);
-
-            element.classList.add('enlarged-chart');
-            overlay.classList.add('active');
-            activeEnlarged = element;
-        }
-        
-        setTimeout(() => {
-            Object.values(Chart.instances).forEach(c => c.resize());
-        }, 50);
-    }
-
-    overlay.addEventListener('click', () => {
-        if (activeEnlarged) toggleEnlarge(activeEnlarged);
-    });
-
-    document.querySelectorAll('.graph-column, .waveform-box').forEach(box => {
-        box.addEventListener('dblclick', function() {
-            toggleEnlarge(this);
-            window.getSelection().removeAllRanges();
-        });
-        box.style.cursor = 'pointer';
-        box.title = 'Double click to enlarge';
-    });
-});
-</script>
-
-<style>
-.waveform-box, .graph-column {
-    overflow: hidden;
-}
-.enlarged-chart .waveform-chart,
-.enlarged-chart .chart-wrapper {
-    height: calc(100% - 40px) !important;
-    min-height: 0 !important;
-}
-</style>

@@ -94,16 +94,20 @@ def _fft_peaks(base_freq: float = 50.0, n: int = 5) -> tuple[list, list]:
     return freqs, mags
 
 
-def build_payload(core_id: int, packet_index: int) -> dict:
+def build_payload(core_id: int, packet_index: int, spike: bool = False) -> dict:
     """
     Build a full JSON payload that matches the schema expected by
-    server.py  receive_esp32_data()  (POST /data).
+    server.py / cloud_server.py receive_esp32_data() (POST /data).
     """
     # Slowly drift the acceleration upward every 10 packets to show trend
     drift = (packet_index // 10) * 0.15
 
-    max_az  = _jitter(BASE_ACC_Z + drift)
-    min_az  = _jitter(-BASE_ACC_Z - drift)
+    if spike and packet_index % 5 == 4:
+        max_az = _jitter(55.0, 2.0)
+        min_az = _jitter(-25.0, 2.0)
+    else:
+        max_az = _jitter(BASE_ACC_Z + drift)
+        min_az = _jitter(-BASE_ACC_Z - drift)
     mean_az = _jitter(0.0, 0.01)
     std_az  = _jitter(0.25, 0.02)
 
@@ -177,17 +181,27 @@ def build_payload(core_id: int, packet_index: int) -> dict:
 # ──────────────────────────────────────────────────────────────
 #  Main send loop
 # ──────────────────────────────────────────────────────────────
-def send_packet(url: str, core_id: int, packet_index: int, verbose: bool = True) -> bool:
-    payload = build_payload(core_id, packet_index)
+def send_packet(
+    url: str,
+    core_id: int,
+    packet_index: int,
+    verbose: bool = True,
+    api_key: str = "",
+    spike: bool = False,
+) -> bool:
+    payload = build_payload(core_id, packet_index, spike=spike)
     endpoint = f"{url.rstrip('/')}/data"
     esp_name = f"esp32_one (Core 1)" if core_id == 1 else f"esp32_num2 (Core 2)"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
 
     try:
         resp = requests.post(
             endpoint,
             json=payload,
             timeout=10,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         )
         ts = datetime.now().strftime("%H:%M:%S")
         if resp.status_code == 200:
@@ -213,7 +227,15 @@ def send_packet(url: str, core_id: int, packet_index: int, verbose: bool = True)
         return False
 
 
-def run(url: str, interval: float, cores: list[int], burst: int | None):
+def run(
+    url: str,
+    interval: float,
+    cores: list[int],
+    burst: int | None,
+    verbose: bool = True,
+    api_key: str = "",
+    spike: bool = False,
+):
     print("=" * 65)
     print("  Cyrus Vibration -- ESP32 Dummy Data Simulator")
     print("=" * 65)
@@ -221,6 +243,7 @@ def run(url: str, interval: float, cores: list[int], burst: int | None):
     print(f"  Interval: {interval}s per packet")
     print(f"  Cores   : {cores}")
     print(f"  Burst   : {'infinite' if burst is None else burst} packets")
+    print(f"  Spike   : {'enabled (every 5th packet)' if spike else 'disabled'}")
     print("=" * 65)
     print("  Press Ctrl+C to stop.\n")
 
@@ -232,7 +255,14 @@ def run(url: str, interval: float, cores: list[int], burst: int | None):
             for core_id in cores:
                 if core_id == 2 and len(cores) > 1:
                     time.sleep(1.0)   # simulate 1 s sync delay
-                send_packet(url, core_id, packet_index)
+                send_packet(
+                    url,
+                    core_id,
+                    packet_index,
+                    verbose=verbose,
+                    api_key=api_key,
+                    spike=spike,
+                )
 
             packet_index += 1
             if burst is None or packet_index < burst:
@@ -269,6 +299,14 @@ if __name__ == "__main__":
         "--quiet", action="store_true",
         help="Suppress per-packet output"
     )
+    parser.add_argument(
+        "--api-key", default="",
+        help="Optional X-API-Key header for protected /data endpoint"
+    )
+    parser.add_argument(
+        "--spike", action="store_true",
+        help="Inject >50 m/s^2 spike every 5th packet to test alerts & auto-events"
+    )
     args = parser.parse_args()
 
     cores = [1, 2] if args.core == 0 else [args.core]
@@ -277,4 +315,7 @@ if __name__ == "__main__":
         interval = args.interval,
         cores    = cores,
         burst    = args.burst,
+        verbose  = not args.quiet,
+        api_key  = args.api_key,
+        spike    = args.spike,
     )
